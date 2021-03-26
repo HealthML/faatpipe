@@ -1,0 +1,13 @@
+name: genomics
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - tensorflow-gpu=1.12.0
+  - keras=2.2.4
+  - h5py<3.0.0
+  - pybedtools
+  - pysam
+  - progress
+  

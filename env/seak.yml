@@ -1,0 +1,14 @@
+name: seak
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - pip=20.2.3
+  - python=3.8
+  - numpy
+  - scipy
+  - cython
+  - mkl>=2019.4
+  - libblas=*=*mkl
+  - pip:
+    - fastlmm==0.4.11

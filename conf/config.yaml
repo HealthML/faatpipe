@@ -1,0 +1,75 @@
+
+######################
+# global parameters  #
+######################
+
+# covariates TSV
+covariates: 'data/covariates/covariates.tsv.gz'
+
+# phenotypes TSV
+phenotypes: 'data/covariates/phenotypes_transformed.tsv.gz'
+
+# plink formatted files table
+samplesheet_plink: 'conf/plinkfiles.tsv'
+
+# reference genome and gene annotation 
+reference_fa: 'Homo_sapiens.GRCh38.dna.primary_assembly_renamed.fa'
+gene_annotation_gtf: 'Homo_sapiens.GRCh38.97.gtf.gz' 
+
+# Exome sequencing target regions and high confidence regions (used for annotation)
+high_confidence_regions: 'data/regions/HG001_GRCh38_GIAB_highconf_CG-IllFB-IllGATKHC-Ion-10X-SOLID_CHROM1-X_v.3.3.2_highconf_nosomaticdel_noCENorHET7.rm_chr.bed'
+exome_sequencing_target_regions: 'data/regions/xgen_plus_spikein.b38.bed'
+
+
+###################################
+# Ensembl VEP-specific parameters #
+###################################
+
+ensembl_version: 97
+min_impact: 0.8
+
+
+################################
+# spliceAI-specific parameters #
+################################
+
+splice_ai_scores_snv_vcf: 'spliceai_scores.masked.snv.hg38.vcf.gz'
+
+splice_ai_min_impact: 0.1
+
+# not implemented, but we could also overlap with the indels:
+# splice_ai_scores_indel_vcf = ''
+
+################################
+# DeepRiPe specific parameters #
+################################
+
+deepripe_min_impact: 0.25
+
+
+########################################
+# association-test-specific parameters #
+########################################
+
+# minor allele frequency cutoff for association testing
+maf_cutoff: 0.001
+max_missingness: 0.1
+
+covariate_column_names: ['age_at_recruitment', 'sex', 'bmi', 'smoking_status', 'PC1', 'PC2', 'PC3', 'PC4', 'PC5', 'PC6', 'PC7', 'PC8', 'PC9', 'PC10']
+
+
+#############################
+# pre-processing parameters #
+#############################
+
+# Parameters used during pre-processing (pre-processing notebook, not part of the pipeline.)
+
+phenotypes_raw: 'data/raw/phenotypes.tsv.gz'
+covariates_raw: 'data/raw/covariates.tsv.gz'
+
+# IDs of participants that have withdrawn consent:
+iid_withdraw: 'data/raw/iid_withdraw.txt'
+
+# files containing IDs of other individuals to exclude (for example because of relatedness):
+iid_exclude: ['data/raw/iid_related.txt']
+
