@@ -1,4 +1,7 @@
 
+# These rules implement association tests 
+# the {id} wildcard refers to the different chromosomes
+# the {pheno} wildcard refers to the different phenotypes
 
 rule assoc_baseline_scoretest:
     # runs "baseline" association tests:
@@ -36,6 +39,7 @@ rule assoc_baseline_scoretest_all:
 
 
 rule assoc_missense_localcollapsing:
+    # runs association tests for missense variants using local collapsing
     input:
         h5_lof = expand(rules.export_plof_burden.output.h5, id = plinkfiles.getIds(), allow_missing=True),
         iid_lof = expand(rules.export_plof_burden.output.iid_txt,  id = plinkfiles.getIds(), allow_missing=True),
@@ -67,11 +71,12 @@ rule assoc_missense_localcollapsing:
         '../script/python/assoc_sclrt_kernels_missense.py'
 
 rule assoc_missense_localcollapsing_all:
+    # runs rule above for all phenotypes
     input:
         expand(rules.assoc_missense_localcollapsing.output, pheno=phenotypes.keys(), filter_highconfidence=['all'])
 
 rule assoc_missense_localcollapsing_eval_top_hits:
-    # evaluate top hits: calculate single-variant p-values and regression coefficients (joint fit in the LMM)
+    # calculates single-variant p-values and regression coefficients and other statistics for the most significant genes for missense variants
     input:
         h5_lof = expand(rules.export_plof_burden.output.h5, id = plinkfiles.getIds(), allow_missing=True),
         iid_lof = expand(rules.export_plof_burden.output.iid_txt,  id = plinkfiles.getIds(), allow_missing=True),
@@ -104,12 +109,13 @@ rule assoc_missense_localcollapsing_eval_top_hits:
         
         
 rule assoc_missense_localcollapsing_eval_top_hits_all:
-    # run above rule for all phenotypes - this rule will effectively run the entire pipeline for missense variants + kernel-based tests!
+    # run above rule for all phenotypes - this rule will effectively run the entire pipeline for missense variants
     input:
         expand(rules.assoc_missense_localcollapsing_eval_top_hits.output, pheno=phenotypes.keys(), filter_highconfidence=['all'])
         
 
 rule assoc_spliceai_linw:
+    # runs association tests for splice variants
     input:
         h5_lof = expand(rules.export_plof_burden.output.h5, id = plinkfiles.getIds(), allow_missing=True),
         iid_lof = expand(rules.export_plof_burden.output.iid_txt,  id = plinkfiles.getIds(), allow_missing=True),
@@ -148,6 +154,7 @@ rule assoc_spliceai_linw_all:
         expand(rules.assoc_spliceai_linw.output, pheno=phenotypes.keys(), filter_highconfidence=['all'])
 
 rule assoc_spliceai_linw_eval_top_hits:
+    # calculates single-variant p-values and regression coefficients and other statistics for the most significant genes for splice variants
     input:
         h5_lof = expand(rules.export_plof_burden.output.h5, id = plinkfiles.getIds(), allow_missing=True),
         iid_lof = expand(rules.export_plof_burden.output.iid_txt,  id = plinkfiles.getIds(), allow_missing=True),
@@ -181,6 +188,7 @@ rule assoc_spliceai_linw_eval_top_hits:
         '../script/python/assoc_sclrt_kernels_spliceai_eval_top_hits.py'
 
 rule assoc_spliceai_linw_eval_top_hits_all:
+    # runs rule above for all phenotypes - this rule will effectively run the entire pipeline for splice variants
     input:
          expand(rules.assoc_spliceai_linw_eval_top_hits.output, pheno=phenotypes.keys(), filter_highconfidence=['all'])
 
@@ -275,7 +283,7 @@ rule assoc_deepripe_multiple_cholesky_all:
         expand(rules.assoc_deepripe_multiple_cholesky.output, filter_highconfidence=['all'], pheno=phenotypes.keys())
 
 rule assoc_deepripe_multiple_cholesky_eval_top_hits:
-    # evaluation of top hits for multi-RBP analysis
+    # calculates single-variant p-values and regression coefficients and other statistics for the most significant genes for DeepRiPe variants
     input:
         bed = expand(rules.link_genotypes.output.bed, id = plinkfiles.getIds()),
         h5_rbp_plus = expand(rules.run_deepripe_vep.output.h5, id = plinkfiles.getIds(), strand=['plus']),
@@ -311,5 +319,6 @@ rule assoc_deepripe_multiple_cholesky_eval_top_hits:
 
 
 rule assoc_deepripe_multiple_cholesky_eval_top_hits_all:
+    # runs rule above for all phenotypes - this will effectively run the entire pipeline for DeepRiPe variants
     input:
         expand(rules.assoc_deepripe_multiple_cholesky_eval_top_hits.output, pheno=phenotypes.keys(), filter_highconfidence=['all'])
