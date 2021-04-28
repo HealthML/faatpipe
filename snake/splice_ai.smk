@@ -1,4 +1,7 @@
 
+# These rules implement overlapping UK Biobank variants with SpliceAI variant effect predictions 
+# the {id} wildcard refers to the different chromosomes
+
 rule splice_ai_tabix_vcf:
     # index the vcf file with tabix
     input:
