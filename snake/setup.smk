@@ -1,5 +1,9 @@
 
 
+# These rules perform a couple of format conversions, and generate basic statistics on the variants analysed
+# the {id} wildcard refers to the different chromosomes
+# the {pheno} wildcard refers to the different phenotypes
+
 rule get_protein_coding_genes:
     # get's the protein coding genes from the annotation GTF file 
     input:
