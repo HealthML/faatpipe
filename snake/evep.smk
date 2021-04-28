@@ -1,6 +1,13 @@
 
+
+# These rules implement variant effect prediction using the Ensembl Variant Effect Predictor (VEP)
+# the {id} wildcard refers to the different chromosomes
+# the {pheno} wildcard refers to the different phenotypes
+
 rule install_ensembl_cache:
-    # use this rule to install a specific version of the ensembl VEP cache. Ideally this version should match that of the gene annotation GTF.
+    # This rule installs a specific version of the ensembl VEP cache.
+    # Ideally this version should match that of the gene annotation GTF.
+    # The version and annotation GTF can be set in config.yaml
     output:
         expand('data/evep_cache/homo_sapiens/{ensembl_version}_GRCh38/info.txt', ensembl_version=config['ensembl_version'])
     params:
@@ -17,6 +24,7 @@ rule install_ensembl_cache:
         
 
 rule run_ensembl_vep:
+    # this rule runs the Ensembl VEP for a specific chromosome {id}
     input:
         cache_info=expand('data/evep_cache/homo_sapiens/{ensembl_version}_GRCh38/info.txt', ensembl_version=config['ensembl_version']),
         vcf = rules.bim_to_vcf.output.vcf
@@ -50,7 +58,7 @@ rule run_ensembl_vep:
         
         
 rule run_ensembl_vep_all:
-    # rule that triggers running the ensembl variant effect predictor for all chromosomes 
+    # this rule triggers running the VEP for all chromosomes 
     input:
         expand(rules.run_ensembl_vep.output.vep_tsv, id=plinkfiles.getIds())
     output:
@@ -58,7 +66,8 @@ rule run_ensembl_vep_all:
         
         
 rule filter_ensembl_vep_output_highimpact:
-    # get's all the variants marked with IMPACT=HIGH
+    # this rule get's all the variants marked with IMPACT=HIGH
+    # the output is further processed in the rule below.
     input:
         tsv = rules.run_ensembl_vep.output.vep_tsv
     output:
@@ -72,7 +81,7 @@ rule filter_ensembl_vep_output_highimpact:
 
 
 rule process_ensembl_vep_output_highimpact:
-    # filters the output of filter_ensembl_vep_output_highimpact so there's only one entry for every variant
+    # this rule processes the output of filter_ensembl_vep_output_highimpact so there's only one entry for every variant
     input:
         tsv = rules.filter_ensembl_vep_output_highimpact.output.tsv
     output:
@@ -90,7 +99,7 @@ rule process_ensembl_vep_output_highimpact_all:
 
 
 rule filter_ensembl_vep_output_missense:
-    # get's all the missense variants
+    # extracts all the missense variants
     # this is a dead end, not actually needed!
     input:
         tsv = rules.run_ensembl_vep.output.vep_tsv
@@ -126,7 +135,9 @@ rule download_ensembl_cds_fasta:
         
     
 rule evep_missense_proc:
-    # rule to run missense variant annotation for a single chromosome
+    # rule to process missense variants for a single chromosome
+    # output.tsv_all:      provided for convenience, contains a single entry for every transcipt->variant combination
+    # output.tsv_filtered: contains a single entry for every gene->variant combination and is used for the association tests ("collapsed" version of tsv_all)
     input:
         tsv = rules.run_ensembl_vep.output.vep_tsv,
         cds_fasta = rules.download_ensembl_cds_fasta.output.fasta
@@ -155,6 +166,10 @@ rule evep_missense_proc_all:
 
 rule export_plof_burden:
     # export protein LOF indicator variables to (tiny!) files
+    # output.h5:   HDF5-file containing binary matrix of indicator variables shape=(n_genes, n_individuals)
+    #              1 -> individual had at least 1 LOF variant, 0 -> individual had no LOF variants
+    # output.gene_txt:    gene identifiers corresponding to the rows
+    # output.iid_txt:     individual identifiers corresponding to the columns
     input:
         mac_report = rules.mac_report.output.tsv,
         anno_tsv = rules.basic_annotation.output.tsv,
@@ -188,7 +203,11 @@ rule export_plof_burden_all:
 
 rule export_missense_burden:
     # export missense indicator variables to (tiny!) files
-    # Note: these are *not* the ones used in association tests in the publication!
+    # Note: these are *not* the ones used in association tests
+    # output.h5:   HDF5-file containing binary matrix of indicator variables shape=(n_genes, n_individuals)
+    #              1 -> individual had at least 1 high-impact missense variant, 0 -> individual had no high-impact missense variants
+    # output.gene_txt:    gene identifiers corresponding to the rows
+    # output.iid_txt:     individual identifiers corresponding to the columns
     input:
         mac_report = rules.mac_report.output.tsv,
         anno_tsv = rules.basic_annotation.output.tsv,
