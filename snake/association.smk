@@ -31,11 +31,48 @@ rule assoc_baseline_scoretest:
         '../env/seak.yml'
     script:
         '../script/python/assoc_baseline_scoretest.py'
-        
+                
         
 rule assoc_baseline_scoretest_all:
     input:
         expand(rules.assoc_baseline_scoretest.output, pheno=phenotypes.keys(), id=plinkfiles.getIds(), filter_highconfidence=['all'])
+      
+      
+rule pLOF_nsnp_cummac:
+    input:
+        basic_anno_tsv=expand(rules.basic_annotation.output.tsv, id=plinkfiles.getIds()),
+        mac_report=expand(rules.filter_variants.output.vid_tsv, id=plinkfiles.getIds(), allow_missing=True),
+        evep_tsv = expand(rules.process_ensembl_vep_output_highimpact.output.tsv, id=plinkfiles.getIds()),
+        pc_genes = rules.get_protein_coding_genes.output.pc_genes_bed
+    output:
+        tsv='work/association/baseline_scoretest/{filter_highconfidence}/{pheno}/pLOF_nSNP_cumMAC.tsv.gz'
+    conda:
+        '../env/seak.yml'
+    script:
+        '../script/python/pLOF_nSNP_cumMAC.py'
+      
+rule pLOF_nsnp_cummac_all:
+    input:
+        expand(rules.pLOF_nsnp_cummac.output, pheno=phenotypes.keys(), filter_highconfidence=['all'])
+        
+# rule process_pLOF_results:
+#     input:
+#         expand(rules.assoc_baseline_scoretest.output, id = plinkfiles.getIds(), allow_missing=True)
+#     output:
+#         temp('work/association/baseline_scoretest/{filter_highconfidence}/{pheno}/results.tsv.gz')
+#     params:
+#         name=lambda wc: phenotypes[wc.pheno],
+#         in_prefix = lambda wc, input: input[0].replace(plinkfiles.getIDs()[0]+'.tsv.gz', '')
+#     log:
+#         'logs/association/baseline_scoretest/{filter_highconfidence}/{pheno}/process_pLOF_results.log'
+#     conda:
+#         '../env/seak.yml'
+#     shell:
+#         '('
+#         'python script/python/association/process_pLOF_results.py '
+#         '--name "{params[name]}" '
+#         '-i {params[in_prefix]} '
+#         ') &> {log}'
 
 
 rule assoc_missense_localcollapsing:
@@ -92,7 +129,7 @@ rule assoc_missense_localcollapsing_eval_top_hits:
     output:
         out_ok = touch('work/association/sclrt_kernels_missense/{filter_highconfidence}/{pheno}/top_hits/all.ok')
     params:
-        kernels = ['linwcollapsed','linwcollapsed_cLOF','linwb','linwb_mrgLOF'],
+        kernels = ['lincollapsed','linwcollapsed','lincollapsed_cLOF','linwcollapsed_cLOF','linb','linwb','linb_mrgLOF','linwb_mrgLOF'], # genes with p < 1e-7 in one of these kernels will be analysed in detail
         phenotype = lambda wc: phenotypes[ wc.pheno ],
         covariate_column_names = config['covariate_column_names'],
         max_maf = config['maf_cutoff'],
@@ -171,7 +208,7 @@ rule assoc_spliceai_linw_eval_top_hits:
     output:
         touch('work/association/sclrt_kernels_spliceai/{filter_highconfidence}/{pheno}/top_hits/all.ok')
     params:
-        kernels = ['linwb','linw','linwb_mrgLOF','linw_cLOF'],
+        kernels = ['linb','linwb','lin','linw','linb_mrgLOF','linwb_mrgLOF','lin_cLOF','linw_cLOF'],
         phenotype = lambda wc: phenotypes[ wc.pheno ],
         covariate_column_names = config['covariate_column_names'],
         max_maf = config['maf_cutoff'],
