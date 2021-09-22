@@ -308,7 +308,7 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
                 if vids is not None:
                     pval_dict[name]['vid'] = vids
 
-            # load missense variants
+            # load rbp variants
             G, vids, weights, S, ncarrier, cummac, pos, V = get_rbp(interval)
             keep = ~is_plof(vids)
 

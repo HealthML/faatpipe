@@ -39,8 +39,8 @@ rule export_results_splice:
         rules.assoc_spliceai_linw_all.input,
         rules.install_seak.output
     output:
-        lambdaval='results/tables/lambdaval_rbp.tsv',
-        results_tsv='results/tables/results_rbp.tsv.gz'
+        lambdaval='results/tables/lambdaval_splice.tsv',
+        results_tsv='results/tables/results_splice.tsv.gz'
     conda:
         '../env/seak.yml'
     log:
@@ -52,7 +52,7 @@ rule export_results_splice:
 rule export_results_rbp:
     # export results and calculate genomic inflation
     input:
-        rules.assoc_deepripe_single_localcollapsing_all.input,
+        rules.assoc_deepripe_multiple_cholesky_all.input,
         rules.install_seak.output
     output:
         lambdaval='results/tables/lambdaval_rbp.tsv',

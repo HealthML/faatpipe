@@ -66,7 +66,7 @@ def test_gene(gene):
                 pv = null_model.pv_alt_model(GV, method='saddle')
             pval_dict['pv_' + name] = pv
             pval_dict['nCarrier_' + name] = int(GV.sum())
-            if pv < 1e-5:
+            if pv < 1e-3:
                 # if gene is quite significant get the regression coefficient + SE
                 beta = null_model.coef(GV)
                 pval_dict['beta_' + name ] = beta['beta'][0,0]
@@ -74,13 +74,13 @@ def test_gene(gene):
 
     # Load the protein lof burdens
     try:
-        Glof = bloader_lof.genotypes_by_id(gene).astype(np.float)
+        Glof = bloader_lof.genotypes_by_id(gene).astype(float)
     except KeyError:
         Glof = None
 
     # Load the missense burdens
     try:
-        Gmiss = bloader_missense.genotypes_by_id(gene).astype(np.float)
+        Gmiss = bloader_missense.genotypes_by_id(gene).astype(float)
     except KeyError:
         Gmiss = None
 

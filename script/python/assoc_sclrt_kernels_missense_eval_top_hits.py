@@ -51,7 +51,7 @@ def maf_filter(mac_report):
     else:
         vids = mac_report.SNP[(mac_report.MAF < snakemake.params.max_maf) & (mac_report.Minor > 0) & ~(mac_report.alt_greater_ref)]
 
-        # this has already been done in filter_variants.py
+    # this has already been done in filter_variants.py
     # load the variant annotation, keep only variants in high-confidece regions
     # anno = pd.read_csv(anno_tsv, sep='\t', usecols=['Name', 'hiconf_reg'])
     # vids_highconf = anno.Name[anno.hiconf_reg.astype(bool).values]
@@ -170,10 +170,11 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
 
         temp_genotypes, temp_vids = plinkloader.genotypes_by_id(vids, return_pos=False)
 
+        ncarrier = np.nansum(np.nansum(temp_genotypes, axis=1) >= 1)
+
         temp_genotypes -= np.nanmean(temp_genotypes, axis=0)
         G1 = np.ma.masked_invalid(temp_genotypes).filled(0.)
 
-        ncarrier = np.sum(G1 > 0.5, axis=0)
         cummac = mac_report.loc[vids].Minor
 
         # polyphen / sift impact

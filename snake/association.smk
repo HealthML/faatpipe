@@ -55,25 +55,6 @@ rule pLOF_nsnp_cummac_all:
     input:
         expand(rules.pLOF_nsnp_cummac.output, pheno=phenotypes.keys(), filter_highconfidence=['all'])
         
-# rule process_pLOF_results:
-#     input:
-#         expand(rules.assoc_baseline_scoretest.output, id = plinkfiles.getIds(), allow_missing=True)
-#     output:
-#         temp('work/association/baseline_scoretest/{filter_highconfidence}/{pheno}/results.tsv.gz')
-#     params:
-#         name=lambda wc: phenotypes[wc.pheno],
-#         in_prefix = lambda wc, input: input[0].replace(plinkfiles.getIDs()[0]+'.tsv.gz', '')
-#     log:
-#         'logs/association/baseline_scoretest/{filter_highconfidence}/{pheno}/process_pLOF_results.log'
-#     conda:
-#         '../env/seak.yml'
-#     shell:
-#         '('
-#         'python script/python/association/process_pLOF_results.py '
-#         '--name "{params[name]}" '
-#         '-i {params[in_prefix]} '
-#         ') &> {log}'
-
 
 rule assoc_missense_localcollapsing:
     # runs association tests for missense variants using local collapsing
@@ -99,7 +80,8 @@ rule assoc_missense_localcollapsing:
         out_dir_stats = lambda wc: 'work/association/sclrt_kernels_missense/{filter_highconfidence}/{pheno}/lrt_stats/'.format(filter_highconfidence=wc.filter_highconfidence, pheno=wc.pheno),
         ids = plinkfiles.getIds(),
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
-        sclrt_nominal_significance_cutoff = 0.1
+        sclrt_nominal_significance_cutoff = 0.1,
+        debug=False
     log:
         'logs/association/sclrt_kernels_missense/{filter_highconfidence}_{pheno}.log'
     conda:
@@ -234,10 +216,10 @@ rule assoc_deepripe_single_localcollapsing:
     # run association tests with DeepRiPe variant effect predictions for single RBP
     input:
         bed = expand(rules.link_genotypes.output.bed, id = plinkfiles.getIds()),
-        h5_rbp_plus = expand(rules.run_deepripe_vep.output.h5, id = plinkfiles.getIds(), strand=['plus']),
-        h5_rbp_minus = expand(rules.run_deepripe_vep.output.h5, id = plinkfiles.getIds(), strand=['minus']),
-        bed_rbp_plus = expand(rules.run_deepripe_vep.output.bed, id = plinkfiles.getIds(), strand=['plus']),
-        bed_rbp_minus = expand(rules.run_deepripe_vep.output.bed, id = plinkfiles.getIds(), strand=['minus']),
+        h5_rbp_plus = ancient(expand(rules.run_deepripe_vep.output.h5, id = plinkfiles.getIds(), strand=['plus'])),
+        h5_rbp_minus = ancient(expand(rules.run_deepripe_vep.output.h5, id = plinkfiles.getIds(), strand=['minus'])),
+        bed_rbp_plus = ancient(expand(rules.run_deepripe_vep.output.bed, id = plinkfiles.getIds(), strand=['plus'])),
+        bed_rbp_minus = ancient(expand(rules.run_deepripe_vep.output.bed, id = plinkfiles.getIds(), strand=['minus'])),
         ensembl_vep_tsv = expand(rules.process_ensembl_vep_output_highimpact.output.tsv, id = plinkfiles.getIds(), allow_missing=True),
         mac_report = expand(rules.filter_variants.output.vid_tsv, id = plinkfiles.getIds(), allow_missing=True),
         regions_bed = rules.get_protein_coding_genes.output.pc_genes_bed,

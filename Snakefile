@@ -31,7 +31,6 @@ if 'phenotypes' in config:
             phenotypes = f.readline.rstrip().split('\t')
     # "phenotypes" provides a mapping from file-prefixes to columns in the phenotype.tsv file
     phenotypes = { clean_str(p): p  for p in phenotypes[1:] }
-    # print(phenotypes)
 
 
 ########################
@@ -47,7 +46,7 @@ wildcard_constraints:
 # local rules #
 ###############
 
-localrules: link_all, install_sh, install_seak, setup_all, run_deepripe_vep_all, run_ensembl_vep_all, evep_missense_proc_all, splice_ai_filter_and_overlap_with_genotypes_all, splice_ai_vcf_to_tsv_all, filter_variants_all, export_plof_burden_all, export_missense_burden_all, assoc_baseline_scoretest_all, mac_report_all, assoc_spliceai_linw_all, assoc_deepripe_single_localcollapsing_all, 
+localrules: link_all, install_sh, install_seak, setup_all, run_deepripe_vep_all, run_ensembl_vep_all, evep_missense_proc_all, splice_ai_filter_and_overlap_with_genotypes_all, splice_ai_vcf_to_tsv_all, filter_variants_all, export_plof_burden_all, export_missense_burden_all, assoc_baseline_scoretest_all, mac_report_all, assoc_spliceai_linw_all, assoc_deepripe_single_localcollapsing_all, pLOF_nsnp_cummac_all
 
 
 ###############
@@ -134,9 +133,9 @@ rule install_seak:
         'env/seak.yml'
     shell:
         'if [ ! -d seak ]; then '
-        'git clone https://github.com/HealthML/seak.git && cd seak && git checkout 28cd74decb47d8a5294eb59e793cb24a0f242e9e ; '
+        'git clone https://github.com/HealthML/seak.git && cd seak && git checkout tags/v0.4.2 ; '
         'else '
-        'cd seak && git checkout 28cd74decb47d8a5294eb59e793cb24a0f242e9e ; '
+        'cd seak && git checkout tags/v0.4.2 ; '
         'fi ; '
         'pip install -e . '
         
@@ -157,3 +156,4 @@ include: "snake/deepripe.smk"
 include: "snake/evep.smk"
 include: "snake/splice_ai.smk"
 include: "snake/association.smk"
+include: "snake/results_processing.smk"
