@@ -278,7 +278,7 @@ rule assoc_spliceai_linw_retest_top_hits:
         covariate_column_names = config['covariate_column_names'],
         max_maf = config['maf_cutoff'],
         min_impact = config['splice_ai_min_impact'],
-        out_dir_stats = lambda wc: 'work/association/sclrt_kernels_spliceai/{filter_highconfidence}/{pheno}/top_hits/'.format(filter_highconfidence=wc.filter_highconfidence, pheno=wc.pheno),
+        out_dir_stats = lambda wc: 'work/association/sclrt_kernels_spliceai/{filter_highconfidence}/{pheno}/lrtsim/'.format(filter_highconfidence=wc.filter_highconfidence, pheno=wc.pheno),
         ids = plinkfiles.getIds(),
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
         debug = True,
