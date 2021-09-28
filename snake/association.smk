@@ -414,7 +414,7 @@ rule assoc_deepripe_multiple_cholesky_eval_top_hits:
         rbp_of_interest = rules.assoc_deepripe_multiple_cholesky.params.rbp_of_interest,
         debug = False
     log:
-        'logs/association/sclrt_kernels_deepripe_multiple/{filter_highconfidence}_{pheno}.log'
+        'logs/association/sclrt_kernels_deepripe_multiple_eval_top_hits/{filter_highconfidence}_{pheno}.log'
     conda:
         '../env/seak.yml'
     script:
@@ -425,3 +425,47 @@ rule assoc_deepripe_multiple_cholesky_eval_top_hits_all:
     # runs rule above for all phenotypes - this will effectively run the entire pipeline for DeepRiPe variants
     input:
         expand(rules.assoc_deepripe_multiple_cholesky_eval_top_hits.output, pheno=phenotypes.keys(), filter_highconfidence=['all'])
+
+
+rule assoc_deepripe_multiple_cholesky_retest_top_hits:
+    # re-tests most significant genes for DeepRiPe variants using gene-specific null-distributions
+    input:
+        bed = expand(rules.link_genotypes.output.bed, id = plinkfiles.getIds()),
+        h5_rbp_plus = expand(rules.run_deepripe_vep.output.h5, id = plinkfiles.getIds(), strand=['plus']),
+        h5_rbp_minus = expand(rules.run_deepripe_vep.output.h5, id = plinkfiles.getIds(), strand=['minus']),
+        bed_rbp_plus = expand(rules.run_deepripe_vep.output.bed, id = plinkfiles.getIds(), strand=['plus']),
+        bed_rbp_minus = expand(rules.run_deepripe_vep.output.bed, id = plinkfiles.getIds(), strand=['minus']),
+        ensembl_vep_tsv = expand(rules.process_ensembl_vep_output_highimpact.output.tsv, id = plinkfiles.getIds(), allow_missing=True),
+        mac_report = expand(rules.filter_variants.output.vid_tsv, id = plinkfiles.getIds(), allow_missing=True),
+        regions_bed = rules.get_protein_coding_genes.output.pc_genes_bed,
+        seak_install = rules.install_seak.output,
+        covariates_tsv = config['covariates'],
+        phenotypes_tsv = config['phenotypes'],
+        results_tsv = rules.assoc_deepripe_multiple_cholesky.output.results_tsv
+    output:
+        t = touch('work/association/sclrt_kernels_deepripe_multiple/{filter_highconfidence}/{pheno}/lrtsim/all.ok'),
+        results_tsv = 'work/association/sclrt_kernels_deepripe_multiple/{filter_highconfidence}/{pheno}/lrtsim/res_lrtsim.tsv.gz'
+    params:
+        significance_cutoff = 5e-6,
+        kernels = ['linwcholesky', 'linwcholesky_notLOF'],
+        phenotype = lambda wc: phenotypes[wc.pheno],
+        covariate_column_names = config['covariate_column_names'],
+        max_maf = config['maf_cutoff'],
+        min_impact = config['deepripe_min_impact'],
+        out_dir_stats = lambda wc: 'work/association/sclrt_kernels_deepripe_multiple/{filter_highconfidence}/{pheno}/lrtsim/'.format(filter_highconfidence=wc.filter_highconfidence, pheno=wc.pheno),
+        ids = plinkfiles.getIds(),
+        filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
+        rbp_of_interest = rules.assoc_deepripe_multiple_cholesky.params.rbp_of_interest,
+        debug = True
+    log:
+        'logs/association/sclrt_kernels_deepripe_multiple_retest_top_hits/{filter_highconfidence}_{pheno}.log'
+    conda:
+        '../env/seak.yml'
+    script:
+        '../script/python/assoc_sclrt_kernels_deepripe_multiple_retest_top_hits.py'
+
+
+rule assoc_deepripe_multiple_cholesky_retest_top_hits_all:
+    # runs rule above for all phenotypes - this will effectively run the entire pipeline for DeepRiPe variants
+    input:
+        expand(rules.assoc_deepripe_multiple_cholesky_retest_top_hits.output, pheno=phenotypes.keys(), filter_highconfidence=['all'])
