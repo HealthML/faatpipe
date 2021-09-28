@@ -1,31 +1,29 @@
-
 import os
-import sys
 # os.environ["OMP_NUM_THREADS"] = "16"
 
 import logging
+
 logging.basicConfig(filename=snakemake.log[0], level=logging.INFO)
 
 import pandas as pd
 import numpy as np
-import pickle
 
 # seak imports
 from seak.data_loaders import intersect_ids, EnsemblVEPLoader, VariantLoaderSnpReader, CovariatesLoaderCSV
-from seak.kernels import LocalCollapsing
 from seak.scoretest import ScoretestNoK
-from seak.lrt import LRTnoK, pv_chi2mixture, fit_chi2mixture
+from seak.lrt import LRTnoK
 
 from pysnptools.snpreader import Bed
+import pickle
+import sys
 
 from util.association import BurdenLoaderHDF5
 from util import Timer
 
-import functools
-
 
 class GotNone(Exception):
     pass
+
 
 # set up the covariatesloader
 
@@ -44,14 +42,13 @@ null_model_lrt = LRTnoK(X, Y)
 
 # set up function to filter variants:
 def maf_filter(mac_report):
-
     # load the MAC report, keep only observed variants with MAF below threshold
     mac_report = pd.read_csv(mac_report, sep='\t', usecols=['SNP', 'MAF', 'Minor', 'alt_greater_ref'])
 
     if snakemake.params.filter_highconfidence:
         vids = mac_report.SNP[(mac_report.MAF < snakemake.params.max_maf) & (mac_report.Minor > 0) & ~(mac_report.alt_greater_ref.astype(bool)) & (mac_report.hiconf_reg.astype(bool))]
     else:
-        vids = mac_report.SNP[(mac_report.MAF < snakemake.params.max_maf) & (mac_report.Minor > 0) & ~(mac_report.alt_greater_ref)]
+        vids = mac_report.SNP[(mac_report.MAF < snakemake.params.max_maf) & (mac_report.Minor > 0) & ~(mac_report.alt_greater_ref.astype(bool))]
 
     # this has already been done in filter_variants.py
     # load the variant annotation, keep only variants in high-confidece regions
@@ -90,10 +87,12 @@ def get_regions():
     regions = regions.join(results.set_index('gene'), how='left').reset_index()
     return regions
 
-# genotype path, vep-path:
-assert len(snakemake.params.ids) == len(snakemake.input.bed), 'Error: length of chromosome IDs does not match length of genotype files'
-geno_vep = zip(snakemake.params.ids, snakemake.input.bed, snakemake.input.vep_tsv, snakemake.input.mac_report, snakemake.input.h5_lof, snakemake.input.iid_lof, snakemake.input.gid_lof)
 
+# genotype path, vep-path:
+assert len(snakemake.params.ids) == len (snakemake.input.bed), 'Error: length of chromosome IDs does not match length of genotype files'
+geno_vep = zip(snakemake.params.ids, snakemake.input.bed, snakemake.input.vep_tsv, snakemake.input.ensembl_vep_tsv, snakemake.input.mac_report, snakemake.input.h5_lof, snakemake.input.iid_lof, snakemake.input.gid_lof)
+
+# get the top hits
 regions_all = get_regions()
 if regions_all is None:
     logging.info('No genes pass significance threshold, exiting.')
@@ -101,6 +100,7 @@ if regions_all is None:
     with gzip.open(snakemake.output.results_tsv, 'wt') as outfile:
         outfile.write('# no hits below specified threshold ({}) for phenotype {}. \n'.format(snakemake.params.significance_cutoff, snakemake.params.phenotype))
     sys.exit(0)
+
 
 logging.info('About to evaluate variants in {} genes'.format(len(regions_all)))
 
@@ -112,7 +112,7 @@ i_chrom = 0
 
 # enter the chromosome loop:
 timer = Timer()
-for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enumerate(geno_vep):
+for i, (chromosome, bed, vep_tsv, ensembl_vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enumerate(geno_vep):
 
     if chromosome.replace('chr','') not in regions_all.chrom.unique():
         continue
@@ -125,37 +125,59 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
     timer.reset()
 
     # set up the ensembl vep loader for the chromosome
-    ensemblvepdf = pd.read_csv(vep_tsv,
-                               sep='\t',
-                               usecols=['Uploaded_variation', 'Location', 'Gene', 'pos_standardized', 'impact', 'ref', 'alt', 'cosine_similarity'],
-                               index_col='Uploaded_variation')
+    spliceaidf = pd.read_csv(vep_tsv,
+                             sep='\t',
+                             usecols=['name', 'chrom', 'end', 'gene', 'max_effect', 'DS_AG', 'DS_AL', 'DS_DG', 'DS_DL', 'DP_AG', 'DP_AL', 'DP_DG', 'DP_DL'],
+                             index_col='name')
 
     # get set of variants for the chromosome:
     mac_report = maf_filter(mac_report)
     filter_vids = mac_report.index.values
 
     # filter by MAF
-    keep = intersect_ids(filter_vids, ensemblvepdf.index.values)
-    ensemblvepdf = ensemblvepdf.loc[keep]
-    ensemblvepdf.reset_index(inplace=True)
+    keep = intersect_ids(filter_vids, spliceaidf.index.values)
+    spliceaidf = spliceaidf.loc[keep]
+    spliceaidf.reset_index(inplace=True)
 
     # filter by impact:
-    ensemblvepdf = ensemblvepdf[ensemblvepdf.groupby(['Gene' ,'pos_standardized'])['impact'].transform(np.max) >= snakemake.params.min_impact ]
-
-    # initialize the loader
-    eveploader = EnsemblVEPLoader(ensemblvepdf['Uploaded_variation'], ensemblvepdf['Location'], ensemblvepdf['Gene'], data = ensemblvepdf[['pos_standardized' ,'impact', 'ref', 'alt', 'cosine_similarity']].values)
+    spliceaidf = spliceaidf[spliceaidf.max_effect >= snakemake.params.min_impact]
 
     # set up the regions to loop over for the chromosome
     regions = regions_all.copy()
 
     # discard all genes for which we don't have annotations
-    regions['gene'] = regions.name.str.split('_', expand=True)[0]
+    gene_ids = regions.name.str.split('_', expand=True)  # table with two columns, ensembl-id and gene-name
+    regions['gene'] = gene_ids[1]  # this is the gene name
+    regions['ensembl_id'] = gene_ids[0]
     regions.set_index('gene', inplace=True)
-    genes = intersect_ids(np.unique(regions.index.values), np.unique(eveploader.pos_df.gene))
-    regions = regions.loc[genes].reset_index()
+    genes = intersect_ids(np.unique(regions.index.values), np.unique(spliceaidf.gene))  # intersection of gene names
+    regions = regions.loc[genes].reset_index()  # subsetting
     regions = regions.sort_values(['chrom', 'start', 'end'])
 
-    # set up the variant loader (missense variants) for the chromosome
+    # check if the variants are protein LOF variants, load the protein LOF variants:
+    ensemblvepdf = pd.read_csv(ensembl_vep_tsv, sep='\t', usecols=['Uploaded_variation', 'Gene'])
+
+    # this column will contain the gene names:
+    genes = intersect_ids(np.unique(ensemblvepdf.Gene.values), regions.ensembl_id)  # intersection of ensembl gene ids
+    ensemblvepdf = ensemblvepdf.set_index('Gene').loc[genes].reset_index()
+    ensemblvepdf['gene'] = gene_ids.set_index(0).loc[ensemblvepdf.Gene.values].values
+
+    # set up the merge
+    ensemblvepdf.drop(columns=['Gene'], inplace=True)  # get rid of the ensembl ids, will use gene names instead
+    ensemblvepdf.rename(columns={'Uploaded_variation': 'name'}, inplace=True)
+    ensemblvepdf['is_plof'] = 1.
+
+    ensemblvepdf = ensemblvepdf[~ensemblvepdf.duplicated()]  # if multiple ensembl gene ids map to the same gene names, this prevents a crash.
+
+    # we add a column to the dataframe indicating whether the variant is already annotated as protein loss of function by the ensembl variant effect predictor
+    spliceaidf = pd.merge(spliceaidf, ensemblvepdf, on=['name', 'gene'], how='left', validate='one_to_one')
+    spliceaidf['is_plof'] = spliceaidf['is_plof'].fillna(0.).astype(bool)
+
+    # initialize the loader
+    # Note: we use "end" here because the start + 1 = end, and we need 1-based coordiantes (this would break if we had indels)
+    eveploader = EnsemblVEPLoader(spliceaidf['name'], spliceaidf['chrom'].astype('str') + ':' + spliceaidf['end'].astype('str'), spliceaidf['gene'], data=spliceaidf[['max_effect', 'is_plof', 'DS_AG', 'DS_AL', 'DS_DG', 'DS_DL', 'DP_AG', 'DP_AL', 'DP_DG', 'DP_DL']].values)
+
+    # set up the variant loader (splice variants) for the chromosome
     plinkloader = VariantLoaderSnpReader(Bed(bed, count_A1=True, num_threads=4))
     plinkloader.update_variants(eveploader.get_vids())
     plinkloader.update_individuals(covariatesloader.get_iids())
@@ -164,14 +186,12 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
     bloader_lof = BurdenLoaderHDF5(h5_lof, iid_lof, gid_lof)
     bloader_lof.update_individuals(covariatesloader.get_iids())
 
-    # set up local collapsing
-    collapser = LocalCollapsing(distance_threshold=1.)
 
-    # set up the missense genotype + vep loading function
-    def get_missense(interval):
+    # set up the splice genotype + vep loading function
+    def get_splice(interval):
 
         try:
-            V1 = eveploader.anno_by_interval(interval, gene=interval['name'].split('_')[0])
+            V1 = eveploader.anno_by_interval(interval, gene=interval['name'].split('_')[1])
         except KeyError:
             raise GotNone
 
@@ -190,17 +210,19 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
 
         cummac = mac_report.loc[vids].Minor
 
-        # polyphen / sift impact
-        weights = V1[1].values.astype(np.float64)
+        # spliceAI max score
+        weights = V1[0].values.astype(np.float64)
+
+        is_plof = V1[1].values.astype(bool)
+
+        splice_preds_all = V1.iloc[:,2:]
+        splice_preds_all.columns = ['DS_AG', 'DS_AL', 'DS_DG', 'DS_DL', 'DP_AG', 'DP_AL', 'DP_DG', 'DP_DL']
 
         # "standardized" positions -> codon start positions
-        pos = V1[0].values.astype(np.int32)
+        # pos = V1[0].values.astype(np.int32)
 
-        ref = V1[2].values.astype(str)
-        alt = V1[3].values.astype(str)
-        cosine_similarity = V1[4].values.astype(np.float64)
+        return G1, vids, weights, ncarrier, cummac, is_plof, splice_preds_all
 
-        return G1, vids, weights, ncarrier, cummac, pos, ref, alt, cosine_similarity
 
     # set up the protein-LOF loading function
 
@@ -224,7 +246,7 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
         os.makedirs(out_dir, exist_ok=True)
 
         def pv_score(GV):
-            # wraps score-test
+            # wraps score test
             pv = null_model_score.pv_alt_model(GV)
             if pv < 0.:
                 pv = null_model_score.pv_alt_model(GV, method='saddle')
@@ -245,43 +267,51 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
                 if len(res['res'] > 0):
                     pd.DataFrame({interval['name']: res['res']}).to_pickle(out_dir + '/{}.pkl.gz'.format(name))
 
-        # load missense variants
-        G1, vids, weights, ncarrier, cummac, pos, ref, alt, cosine_similarity = get_missense(interval)
+
+        # load splice variants
+        G1, vids, weights, ncarrier, cummac, is_plof, splice_preds_all = get_splice(interval)
+        # keep indicates which variants are NOT "protein LOF" variants, i.e. variants already identified by the ensembl VEP
+        keep = ~is_plof
 
         # sanity checks
         assert len(vids) == interval['n_snp'], 'Error: number of variants does not match! expected: {}  got: {}'.format(interval['n_snp'], len(vids))
         assert cummac.sum() == interval['cumMAC'], 'Error: cumMAC does not match! expeced: {}, got: {}'.format(interval['cumMAC'], cummac.sum())
 
-        # perform test using gene-specific distribution, gbvc
+
+        # do a score burden test (max weighted), this is different than the baseline!
         G1_burden = np.max(np.where(G1 > 0.5, np.sqrt(weights), 0.), axis=1, keepdims=True)
         call_test(G1_burden, 'linwb')
 
-        # perform local collapsing with weights
-        if G1.shape[1] > 1:
-            G1, clusters = collapser.collapse(G1, pos, np.sqrt(weights))
-        else:
-            G1 = G1.dot(np.diag(np.sqrt(weights), k=0))
+        # linear weighted kernel
+        G1 = G1.dot(np.diag(np.sqrt(weights), k=0))
 
-        # perform test using gene-specific distribution, kernel-based
-        call_test(G1, 'linwcollapsed')
+        # do a score test (linear weighted)
+        call_test(G1, 'linw')
 
         # load plof burden
         G2 = get_plof(interval)
 
         if G2 is not None:
 
-            # merged (single variable)
-            G1_burden_mrg = np.maximum(G2, G1_burden)
-            call_test(G1_burden_mrg, 'linwb_mrgLOF')
+            if np.any(keep):
 
-            # concatenated
-            call_test(np.concatenate([G1, G2], axis=1), 'linwcollapsed_cLOF')
+                # merged (single variable)
+                G1_burden_mrg = np.maximum(G2, G1_burden)
+                call_test(G1_burden_mrg, 'linwb_mrgLOF')
+
+                # concatenated ( >= 2 variables)
+                # we separate out the ones that are already part of the protein LOF variants!
+
+                G1 = np.concatenate([G1[:, keep], G2], axis=1)
+                call_test(G1, 'linw_cLOF')
+            else:
+                logging.info('All Splice-AI variants for gene {} where already identified by the Ensembl variant effect predictor'.format(interval['name']))
 
         return pval_dict
 
+
     logging.info('loaders for chromosome {} initialized in {:.1f} seconds.'.format(chromosome, timer.check()))
     # run tests for all genes on the chromosome
-
     for _, region in regions.iterrows():
 
         try:
@@ -299,4 +329,3 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
 results = pd.DataFrame(results)
 results['pheno'] = snakemake.params.phenotype
 results.to_csv(snakemake.output.results_tsv, sep='\t', index=False)
-

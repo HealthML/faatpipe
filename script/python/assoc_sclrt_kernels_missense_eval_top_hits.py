@@ -14,7 +14,7 @@ import pickle
 from seak.data_loaders import intersect_ids, EnsemblVEPLoader, VariantLoaderSnpReader, CovariatesLoaderCSV
 from seak.kernels import LocalCollapsing
 from seak.scoretest import ScoretestNoK
-from seak.lrt import LRTnoK, pv_chi2mixture, fit_chi2mixture
+from seak.lrt import LRTnoK
 
 from pysnptools.snpreader import Bed
 
@@ -194,7 +194,7 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
     def get_plof(interval):
 
         try:
-            G2 = bloader_lof.genotypes_by_id(interval['name']).astype(np.float)
+            G2 = bloader_lof.genotypes_by_id(interval['name']).astype(np.float64)
         except KeyError:
             G2 = None
 
@@ -301,6 +301,7 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
             call_score(G1_burden_mrg, 'linwb_mrgLOF')
             call_lrt(G1_burden_mrg, 'linwb_mrgLOF')
 
+            # concatenated
             call_score(np.concatenate([G1, G2], axis=1), 'linwcollapsed_cLOF')
             call_lrt(np.concatenate([G1, G2], axis=1), 'linwcollapsed_cLOF')
             pval_dict['linwcollapsed_cLOF']['cluster_id'] = sorted(set(clusters)) + [-1] # -1 indicates the LOF cluster

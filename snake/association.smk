@@ -254,6 +254,48 @@ rule assoc_spliceai_linw_eval_top_hits_all:
          expand(rules.assoc_spliceai_linw_eval_top_hits.output, pheno=phenotypes.keys(), filter_highconfidence=['all'])
 
 
+rule assoc_spliceai_linw_retest_top_hits:
+    # calculates single-variant p-values and regression coefficients and other statistics for the most significant genes for splice variants
+    input:
+        h5_lof = expand(rules.export_plof_burden.output.h5, id = plinkfiles.getIds(), allow_missing=True),
+        iid_lof = expand(rules.export_plof_burden.output.iid_txt,  id = plinkfiles.getIds(), allow_missing=True),
+        gid_lof = expand(rules.export_plof_burden.output.gene_txt, id = plinkfiles.getIds(), allow_missing=True),
+        ensembl_vep_tsv = expand(rules.process_ensembl_vep_output_highimpact.output.tsv, id = plinkfiles.getIds(), allow_missing=True),
+        covariates_tsv = config['covariates'],
+        phenotypes_tsv = config['phenotypes'],
+        bed = expand(rules.link_genotypes.output.bed, id = plinkfiles.getIds()),
+        vep_tsv = expand(rules.splice_ai_filter_and_overlap_with_genotypes.output.tsv, id = plinkfiles.getIds()),
+        mac_report = expand(rules.filter_variants.output.vid_tsv, id = plinkfiles.getIds(), allow_missing=True),
+        regions_bed = rules.get_protein_coding_genes.output.pc_genes_bed,
+        results_tsv = rules.assoc_spliceai_linw.output.results_tsv,
+        seak_install = rules.install_seak.output
+    output:
+        t = touch('work/association/sclrt_kernels_spliceai/{filter_highconfidence}/{pheno}/lrtsim/all.ok'),
+        results_tsv = 'work/association/sclrt_kernels_spliceai/{filter_highconfidence}/{pheno}/lrtsim/lrt_retest.tsv.gz'
+    params:
+        kernels = [linwb','linw','linwb_mrgLOF','linw_cLOF'],
+        phenotype = lambda wc: phenotypes[wc.pheno],
+        covariate_column_names = config['covariate_column_names'],
+        max_maf = config['maf_cutoff'],
+        min_impact = config['splice_ai_min_impact'],
+        out_dir_stats = lambda wc: 'work/association/sclrt_kernels_spliceai/{filter_highconfidence}/{pheno}/top_hits/'.format(filter_highconfidence=wc.filter_highconfidence, pheno=wc.pheno),
+        ids = plinkfiles.getIds(),
+        filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
+        debug = True,
+        significance_cutoff = 5e-6
+    log:
+        'logs/association/sclrt_kernels_spliceai_retest_top_hits/{filter_highconfidence}_{pheno}.log'
+    conda:
+        '../env/seak.yml'
+    script:
+        '../script/python/assoc_sclrt_kernels_spliceai_retest_top_hits.py'
+
+rule assoc_spliceai_linw_retest_top_hits_all:
+    # runs rule above for all phenotypes - this rule will effectively run the entire pipeline for splice variants
+    input:
+         expand(rules.assoc_spliceai_linw_retest_top_hits.output, pheno=phenotypes.keys(), filter_highconfidence=['all'])
+
+
 rule assoc_deepripe_single_localcollapsing:
     # run association tests with DeepRiPe variant effect predictions for single RBP
     input:
