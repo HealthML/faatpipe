@@ -273,7 +273,7 @@ rule assoc_spliceai_linw_retest_top_hits:
         t = touch('work/association/sclrt_kernels_spliceai/{filter_highconfidence}/{pheno}/lrtsim/all.ok'),
         results_tsv = 'work/association/sclrt_kernels_spliceai/{filter_highconfidence}/{pheno}/lrtsim/lrt_retest.tsv.gz'
     params:
-        kernels = [linwb','linw','linwb_mrgLOF','linw_cLOF'],
+        kernels = ['linwb','linw','linwb_mrgLOF','linw_cLOF'],
         phenotype = lambda wc: phenotypes[wc.pheno],
         covariate_column_names = config['covariate_column_names'],
         max_maf = config['maf_cutoff'],
@@ -281,7 +281,7 @@ rule assoc_spliceai_linw_retest_top_hits:
         out_dir_stats = lambda wc: 'work/association/sclrt_kernels_spliceai/{filter_highconfidence}/{pheno}/lrtsim/'.format(filter_highconfidence=wc.filter_highconfidence, pheno=wc.pheno),
         ids = plinkfiles.getIds(),
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
-        debug = True,
+        debug = False,
         significance_cutoff = 5e-6
     log:
         'logs/association/sclrt_kernels_spliceai_retest_top_hits/{filter_highconfidence}_{pheno}.log'
