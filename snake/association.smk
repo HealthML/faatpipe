@@ -151,7 +151,8 @@ rule assoc_missense_localcollapsing_retest_top_hits:
         out_ok = touch('work/association/sclrt_kernels_missense/{filter_highconfidence}/{pheno}/lrtsim/all.ok'),
         results_tsv = 'work/association/sclrt_kernels_missense/{filter_highconfidence}/{pheno}/lrtsim/lrt_retest.tsv.gz'
     params:
-        kernels = ['linwcollapsed','linwcollapsed_cLOF','linwb','linwb_mrgLOF'], # genes with p < 1e-7 in one of these kernels will be analysed in detail
+        significance_cutoff = 5e-6, # genes with any p-value below this threshold will be analysed in detail...
+        kernels = ['linwcollapsed','linwcollapsed_cLOF','linwb','linwb_mrgLOF'], # kernels to consider 
         phenotype = lambda wc: phenotypes[ wc.pheno ],
         covariate_column_names = config['covariate_column_names'],
         max_maf = config['maf_cutoff'],
@@ -159,7 +160,7 @@ rule assoc_missense_localcollapsing_retest_top_hits:
         out_dir_stats = lambda wc: 'work/association/sclrt_kernels_missense/{filter_highconfidence}/{pheno}/lrtsim/'.format(filter_highconfidence=wc.filter_highconfidence, pheno=wc.pheno),
         ids = plinkfiles.getIds(),
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
-        debug=True
+        debug=False
     log:
         'logs/association/sclrt_kernels_missense_retest_top_hits/{filter_highconfidence}_{pheno}.log'
     conda:

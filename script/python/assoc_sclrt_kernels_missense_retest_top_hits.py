@@ -75,7 +75,7 @@ def get_regions():
     results = results[['gene', 'n_snp', 'cumMAC', 'nCarrier'] + statcols + pvcols_score + pvcols_lrt]
 
     # get genes below threshold
-    genes = [results.gene[results[k] < 1e-7].values for k in pvcols_score + pvcols_lrt ]
+    genes = [results.gene[results[k] < snakemake.params.significance_cutoff].values for k in pvcols_score + pvcols_lrt ]
     genes = np.unique(np.concatenate(genes))
 
     if len(genes) == 0:
@@ -97,6 +97,9 @@ geno_vep = zip(snakemake.params.ids, snakemake.input.bed, snakemake.input.vep_ts
 regions_all = get_regions()
 if regions_all is None:
     logging.info('No genes pass significance threshold, exiting.')
+    import gzip
+    with gzip.open(snakemake.output.results_tsv, 'wt') as outfile:
+        outfile.write('# no hits below specified threshold ({}) for phenotype {}. \n'.format(snakemake.params.significance_cutoff, snakemake.params.phenotype))
     sys.exit(0)
 
 logging.info('About to evaluate variants in {} genes'.format(len(regions_all)))
@@ -227,13 +230,15 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
 
         def call_test(GV, name):
             pval_dict['pv_score_' + name] = pv_score(GV)
-            _ = null_model_lrt.altmodel(GV)
+            altmodel = null_model_lrt.altmodel(GV)
             res = null_model_lrt.pv_sim_chi2(100000, simzero=False, seed=seed)
             pval_dict['pv_lrt_' + name] = res['pv']
-            pval_dict['lrtstat_' + name ] = res['stat']
+            pval_dict['lrtstat_' + name ] = altmodel['stat']
+            if 'h2' in altmodel:
+                pval_dict['h2_' + name ] = altmodel['h2']
 
             if res['pv'] != 1.:
-                for stat in ['scale', 'dof', 'mixture', 'imax', 'h2']:
+                for stat in ['scale', 'dof', 'mixture', 'imax']:
                     pval_dict[stat + '_' + name] = res[stat]
                 if len(res['res'] > 0):
                     pd.DataFrame({interval['name']: res['res']}).to_pickle(out_dir + '/{}.pkl.gz'.format(name))
