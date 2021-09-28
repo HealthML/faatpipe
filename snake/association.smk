@@ -456,7 +456,7 @@ rule assoc_deepripe_multiple_cholesky_retest_top_hits:
         ids = plinkfiles.getIds(),
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
         rbp_of_interest = rules.assoc_deepripe_multiple_cholesky.params.rbp_of_interest,
-        debug = True
+        debug = False
     log:
         'logs/association/sclrt_kernels_deepripe_multiple_retest_top_hits/{filter_highconfidence}_{pheno}.log'
     conda:
