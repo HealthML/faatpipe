@@ -255,7 +255,7 @@ for i, (chromosome, bed, vep_tsv, ensembl_vep_tsv, mac_report, h5_lof, iid_lof, 
         def call_test(GV, name):
             pval_dict['pv_score_' + name] = pv_score(GV)
             altmodel = null_model_lrt.altmodel(GV)
-            res = null_model_lrt.pv_sim_chi2(100000, simzero=False, seed=seed)
+            res = null_model_lrt.pv_sim_chi2(250000, simzero=False, seed=seed)
             pval_dict['pv_lrt_' + name] = res['pv']
             pval_dict['lrtstat_' + name ] = altmodel['stat']
             if 'h2' in altmodel:
