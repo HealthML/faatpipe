@@ -12,6 +12,7 @@ import numpy as np
 from seak.data_loaders import intersect_ids, EnsemblVEPLoader, VariantLoaderSnpReader, CovariatesLoaderCSV
 from seak.scoretest import ScoretestNoK
 from seak.lrt import LRTnoK
+import gzip
 
 from pysnptools.snpreader import Bed
 import pickle

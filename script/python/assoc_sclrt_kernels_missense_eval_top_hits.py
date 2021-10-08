@@ -9,12 +9,15 @@ logging.basicConfig(filename=snakemake.log[0], level=logging.INFO)
 import pandas as pd
 import numpy as np
 import pickle
+import gzip
 
 # seak imports
 from seak.data_loaders import intersect_ids, EnsemblVEPLoader, VariantLoaderSnpReader, CovariatesLoaderCSV
 from seak.kernels import LocalCollapsing
 from seak.scoretest import ScoretestNoK
 from seak.lrt import LRTnoK
+
+import gzip
 
 from pysnptools.snpreader import Bed
 

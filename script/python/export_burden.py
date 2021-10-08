@@ -8,6 +8,7 @@ import sys
 import h5py
 import logging
 import os
+import gzip
 
 class GotNone(Exception):
     pass
@@ -45,6 +46,24 @@ def maf_filter():
         vids = np.intersect1d(vids, vids_highconf)
 
     return vids
+
+def sid_filter(vids):
+    
+    if 'sid_include' in snakemake.config:
+        print('limiting to variants present in {}'.format(snakemake.config['sid_include']))
+        
+        infilepath = snakemake.config['sid_include']
+        
+        if infilepath.endswith('gz'):
+            with gzip.open(infilepath,'rt') as infile:
+                sid = np.array([l.rstrip() for l in infile])
+        else:
+            with open(infilepath, 'r') as infile:
+                sid = np.array([l.rstrip() for l in infile])
+    else:
+        return vids
+                
+    return intersect_ids(vids, sid)
 
 def iid_filter():
     '''
@@ -120,6 +139,7 @@ def main():
 
     # get variants that pass MAF and genotyping filters
     filter_vids = maf_filter()
+    filter_vids = sid_filter(filter_vids)
 
     # get the variant effect predictions and gene regions:
     eveploader, regions = get_veploader_and_regions(filter_vids)
