@@ -58,6 +58,24 @@ def maf_filter(mac_report):
 
     return mac_report.set_index('SNP').loc[vids]
 
+def sid_filter(vids):
+    
+    if 'sid_include' in snakemake.config:
+        print('limiting to variants present in {}'.format(snakemake.config['sid_include']))
+        
+        infilepath = snakemake.config['sid_include']
+        
+        if infilepath.endswith('gz'):
+            with gzip.open(infilepath,'rt') as infile:
+                sid = np.array([l.rstrip() for l in infile])
+        else:
+            with open(infilepath, 'r') as infile:
+                sid = np.array([l.rstrip() for l in infile])
+    else:
+        return vids
+                
+    return intersect_ids(vids, sid)
+
 def get_regions():
     # load the results, keep those below a certain p-value
     results = pd.read_csv(snakemake.input.results_tsv, sep='\t')
@@ -133,6 +151,7 @@ for i, (chromosome, bed, vep_tsv, ensembl_vep_tsv, mac_report, h5_lof, iid_lof, 
     # get set of variants for the chromosome:
     mac_report = maf_filter(mac_report)
     filter_vids = mac_report.index.values
+    filter_vids = sid_filter(filter_vids)
 
     # filter by MAF
     keep = intersect_ids(filter_vids, spliceaidf.index.values)
