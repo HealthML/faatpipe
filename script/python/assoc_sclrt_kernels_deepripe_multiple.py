@@ -56,6 +56,24 @@ def maf_filter(mac_report):
 
     return mac_report.set_index('SNP').loc[vids]
 
+def sid_filter(vids):
+    
+    if 'sid_include' in snakemake.config:
+        print('limiting to variants present in {}'.format(snakemake.config['sid_include']))
+        
+        infilepath = snakemake.config['sid_include']
+        
+        if infilepath.endswith('gz'):
+            with gzip.open(infilepath,'rt') as infile:
+                sid = np.array([l.rstrip() for l in infile])
+        else:
+            with open(infilepath, 'r') as infile:
+                sid = np.array([l.rstrip() for l in infile])
+    else:
+        return vids
+                
+    return intersect_ids(vids, sid)
+
 
 def vep_filter(h5_rbp, bed_rbp):
     # returns variant ids for variants that pass filtering threshold and mask for the hdf5loader
@@ -167,6 +185,7 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
     # get variants that pass MAF threshold:
     mac_report = maf_filter(mac_report)
     filter_vids = mac_report.index.values
+    filter_vids = sid_filter(filter_vids)
 
     # function to identify protein LOF variants
     is_plof = get_plof_id_func(vep_tsv)
