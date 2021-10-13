@@ -71,9 +71,22 @@ def get_regions():
     statcols = ['lrtstat_' + k for k in kern]
     results = results[['gene', 'n_snp', 'cumMAC', 'nCarrier'] + statcols + pvcols_score + pvcols_lrt]
 
-    # get genes below threshold
-    genes = [results.gene[results[k] < snakemake.params.significance_cutoff].values for k in pvcols_score + pvcols_lrt ]
-    genes = np.unique(np.concatenate(genes))
+    if snakemake.params['random']:
+        # get genes below threshold
+        genes = [results.gene[results[k] < snakemake.params.significance_cutoff].values for k in pvcols_score + pvcols_lrt]
+        genes = np.unique(np.concatenate(genes))
+        
+        if len(genes) > 0:
+            # make sure we don't pick ones that are significant
+            results = results[~results.gene.isin(genes)]
+                    
+        results = results[results.cumMAC >= 5] # make sure we dont sample noise
+        results = results.sample(100, replace=False) # sample 20 genes at random
+        genes = results['gene'].values.flatten()
+    else:
+        # get genes below threshold
+        genes = [results.gene[results[k] < snakemake.params.significance_cutoff].values for k in pvcols_score + pvcols_lrt]
+        genes = np.unique(np.concatenate(genes))
 
     if len(genes) == 0:
         return None

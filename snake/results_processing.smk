@@ -65,5 +65,74 @@ rule export_results_rbp:
         '../notebooks/00_export_results_rbp.ipynb'
 
 
+rule lrt_pval_random_compare_missense:
+    # compare gene-specific null distr. pvalues vs pooled (genome-wide) null distr. pvalues
+    input:
+        lrt_tsv=rules.assoc_missense_localcollapsing_retest_random.output['results_tsv'],
+        chi2param=rules.assoc_missense_localcollapsing.output['chi2param_tsv'],
+        install_seak_ok=rules.install_seak.output
+    output:
+        'work/association/sclrt_kernels_missense/{filter_highconfidence}/{pheno}/lrtsim_random/pval_comparison_lrt_pooled_vs_single.tsv.gz'
+    conda:
+        '../env/seak.yml'
+    params:
+        kern=['linwcollapsed','linwcollapsed_cLOF','linwb','linwb_mrgLOF']
+    log:
+        notebook='results/lrt_pooled_vs_single/{pheno}_{filter_highconfidence}_missense.ipynb'
+    notebook:
+        '../notebooks/01_lrt_pooled_vs_single_nulldistr_pval_compare.ipynb'
+        
+rule lrt_pval_random_compare_missense_all:
+    input:
+        expand(rules.lrt_pval_random_compare_missense.output, filter_highconfidence=['all'], pheno=phenotypes.keys())
+    
 
+rule lrt_pval_random_compare_splice:
+    # compare gene-specific null distr. pvalues vs pooled (genome-wide) null distr. pvalues
+    input:
+        lrt_tsv=rules.assoc_spliceai_linw_retest_random.output['results_tsv'],
+        chi2param=rules.assoc_spliceai_linw.output['chi2param_tsv'],
+        install_seak_ok=rules.install_seak.output
+    output:
+        'work/association/sclrt_kernels_spliceai/{filter_highconfidence}/{pheno}/lrtsim_random/pval_comparison_lrt_pooled_vs_single.tsv.gz'
+    conda:
+        '../env/seak.yml'
+    params:
+        kern=['linw','linw_cLOF','linwb','linwb_mrgLOF']
+    log:
+        notebook='results/lrt_pooled_vs_single/{pheno}_{filter_highconfidence}_splice.ipynb'
+    notebook:
+        '../notebooks/01_lrt_pooled_vs_single_nulldistr_pval_compare.ipynb'
 
+rule lrt_pval_random_compare_splice_all:
+    input:
+        expand(rules.lrt_pval_random_compare_splice.output, filter_highconfidence=['all'], pheno=phenotypes.keys())
+        
+
+rule lrt_pval_random_compare_rbp:
+    # compare gene-specific null distr. pvalues vs pooled (genome-wide) null distr. pvalues
+    input:
+        lrt_tsv=rules.assoc_deepripe_multiple_cholesky_retest_random.output['results_tsv'],
+        chi2param=rules.assoc_deepripe_multiple_cholesky.output['chi2param_tsv'],
+        install_seak_ok=rules.install_seak.output
+    output:
+        'work/association/sclrt_kernels_deepripe_multiple/{filter_highconfidence}/{pheno}/lrtsim_random/pval_comparison_lrt_pooled_vs_single.tsv.gz'
+    conda:
+        '../env/seak.yml'
+    params:
+        kern=['linwcholesky']
+    log:
+        notebook='results/lrt_pooled_vs_single/{pheno}_{filter_highconfidence}_rbp.ipynb'
+    notebook:
+        '../notebooks/01_lrt_pooled_vs_single_nulldistr_pval_compare.ipynb'
+
+rule lrt_pval_random_compare_rbp_all:
+    input:
+        expand(rules.lrt_pval_random_compare_rbp.output, filter_highconfidence=['all'], pheno=phenotypes.keys())
+        
+        
+rule lrt_pval_random_compare_all:
+    input:
+        rules.lrt_pval_random_compare_missense_all.input,
+        rules.lrt_pval_random_compare_splice_all.input,
+        rules.lrt_pval_random_compare_rbp_all.input
