@@ -354,7 +354,7 @@ for k in kern:
         (snakemake.params.out_dir_stats + '{}.pkl.gz'.format(k))
 
 # calculate chi2 mixture parameters for each kernel
-params = {k : fit_chi2mixture(np.concatenate(list(simulations_[k].values())), 0.1) for k in simulations_.keys()}
+params = {k : fit_chi2mixture(np.concatenate(list(simulations_[k].values())), qmax=0.1) for k in simulations_.keys()}
 
 pvals = np.empty((stats.shape[0], len(kern)))
 pvals[:, :] = np.nan
