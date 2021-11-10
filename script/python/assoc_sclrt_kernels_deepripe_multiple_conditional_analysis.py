@@ -1,0 +1,441 @@
+import os
+# os.environ["OMP_NUM_THREADS"] = "16"
+
+import logging
+
+logging.basicConfig(filename=snakemake.log[0], level=logging.INFO)
+
+import pandas as pd
+import numpy as np
+import h5py
+import gzip
+import pickle
+import sys
+
+from numpy.linalg import cholesky, LinAlgError
+from sklearn.metrics.pairwise import rbf_kernel, cosine_similarity
+
+# seak imports
+from seak.data_loaders import intersect_ids, Hdf5Loader, VariantLoaderSnpReader, CovariatesLoaderCSV
+from seak.scoretest import ScoretestNoK
+from seak.lrt import LRTnoK
+
+from pysnptools.snpreader import Bed
+
+from util import Timer
+
+
+class GotNone(Exception):
+    pass
+
+
+# set up the covariatesloader
+
+covariatesloader = CovariatesLoaderCSV(snakemake.params.phenotype,
+                                       snakemake.input.covariates_tsv,
+                                       snakemake.params.covariate_column_names,
+                                       sep='\t',
+                                       path_to_phenotypes=snakemake.input.phenotypes_tsv)
+
+# initialize the null models
+Y, X = covariatesloader.get_one_hot_covariates_and_phenotype('noK')
+
+null_model_score = ScoretestNoK(Y, X)
+
+# conditional analysis:
+# we need to fit gene-specific null models for the LRT!
+# null_model_lrt = LRTnoK(X, Y)
+null_model_lrt = None
+
+
+# set up function to filter variants:
+def maf_filter(mac_report):
+    # load the MAC report, keep only observed variants with MAF below threshold
+    mac_report = pd.read_csv(mac_report, sep='\t', usecols=['SNP', 'MAF', 'Minor', 'alt_greater_ref'])
+
+    if snakemake.params.filter_highconfidence:
+        # note: We don't filter out the variants for which alt/ref are "flipped" for the RBPs
+        vids = mac_report.SNP[(mac_report.MAF < snakemake.params.max_maf) & (mac_report.Minor > 0) & (mac_report.hiconf_reg.astype(bool))]
+    else:
+        vids = mac_report.SNP[(mac_report.MAF < snakemake.params.max_maf) & (mac_report.Minor > 0)]
+
+    return mac_report.set_index('SNP').loc[vids]
+
+
+def sid_filter(vids):
+    
+    if 'sid_include' in snakemake.config:
+        print('limiting to variants present in {}'.format(snakemake.config['sid_include']))
+        
+        infilepath = snakemake.config['sid_include']
+        
+        if infilepath.endswith('gz'):
+            with gzip.open(infilepath,'rt') as infile:
+                sid = np.array([l.rstrip() for l in infile])
+        else:
+            with open(infilepath, 'r') as infile:
+                sid = np.array([l.rstrip() for l in infile])
+    else:
+        return vids
+                
+    return intersect_ids(vids, sid)
+
+
+def vep_filter(h5_rbp, bed_rbp):
+    # returns variant ids for variants that pass filtering threshold and mask for the hdf5loader
+
+    with h5py.File(h5_rbp, 'r') as f:
+
+        rbp_of_interest = snakemake.params.rbp_of_interest
+        try:
+            # in newer version of h5py the strings are not decoded -> decode them
+            labels = [l.decode() for l in f['labels'][:]]
+        except AttributeError:
+            # this used to work in older versions of  h5py:
+            labels = list(f['labels'][:])
+
+        if isinstance(rbp_of_interest, str):
+            rbp_of_interest = [rbp_of_interest]
+
+        assert all([rbp in labels for rbp in rbp_of_interest]), 'Error: not all of {} are in labels: {}'.format(rbp_of_interest, labels)
+
+        keep = list(i for i, l in enumerate(labels) if l in rbp_of_interest)
+        diffscores = f['diffscore'][:, keep]
+
+    rbp_mask = np.array([i in rbp_of_interest for i in labels])
+
+    if np.ndim(diffscores) == 1:
+        diffscores = diffscores[:, np.newaxis]
+
+    vid_mask = np.max(np.abs(diffscores), axis=1) >= snakemake.params.min_impact
+
+    vid_df = pd.read_csv(bed_rbp, sep='\t', header=None, usecols=[3], names=['vid'], dtype={'vid': str})
+    vids = vid_df.vid.str.split(pat='_[ACGT]+>[ACGT]+$', n=1, expand=True)[0].values[vid_mask]
+
+    return vids, rbp_mask, np.array(labels)[rbp_mask].tolist()
+
+
+def get_plof_id_func(vep_tsv):
+    # returns a function that takes an array of variant ids as input and returns a boolean array which indicates whether a variant is
+    # annotated as a protein LOF variant for any gene
+
+    plof_ids = pd.read_csv(vep_tsv, sep='\t', usecols=['Uploaded_variation'], index_col='Uploaded_variation').index.drop_duplicates()
+
+    def is_plof(vids):
+        return np.array([vid in plof_ids for vid in vids])
+
+    return is_plof
+
+
+# start: kernel parameters / functions
+def get_cholesky(S):
+    try:
+        chol = cholesky(S)
+        flag = 1
+    except LinAlgError:
+        try:
+            np.fill_diagonal(S, S.diagonal() + 1e-6)  # sometimes this saves it...
+            S /= np.max(S)
+            chol = cholesky(S)
+            flag = 0
+        except LinAlgError:
+            chol = np.eye(len(S))
+            flag = -1
+    return chol, flag
+
+
+def get_simil_from_vep(V):
+    # cosine similarity
+    return cosine_similarity(V)
+
+
+def get_simil_from_pos(pos):
+    # 0.5 at 50bp distance
+    gamma = -1*np.log(0.5)/(50**2)
+    return rbf_kernel(pos[:, np.newaxis], gamma=gamma)
+
+
+def get_weights_from_vep(V):
+    # max norm
+    return np.sqrt(np.max(np.abs(V), axis=1))
+
+
+def get_regions():
+    # load the results, keep those below a certain p-value + present in conditional analysis list 
+    results = pd.read_csv(snakemake.input.results_tsv, sep='\t')
+
+    kern = snakemake.params.kernels
+    if isinstance(kern, str):
+        kern = [kern]
+
+    pvcols_score = ['pv_score_' + k for k in kern]
+    pvcols_lrt = ['pv_lrt_' + k for k in kern]
+    statcols = ['lrtstat_' + k for k in kern]
+    results = results[['gene', 'n_snp', 'cumMAC', 'nCarrier'] + statcols + pvcols_score + pvcols_lrt]
+    
+    results.rename(columns={'gene':'name'}, inplace=True)
+    
+    # set up the regions to loop over for the chromosome
+    regions = pd.read_csv(snakemake.input.regions_bed, sep='\t', header=None, usecols=[0 ,1 ,2 ,3, 5], dtype={0 :str, 1: np.int32, 2 :np.int32, 3 :str, 5:str})
+    regions.columns = ['chrom', 'start', 'end', 'name', 'strand']
+    regions['strand'] = regions.strand.map({'+': 'plus', '-': 'minus'})
+    
+    # conditional analysis, keep only genes that are provided in conditional_list
+    regions['gene_name'] = regions['name'].str.split('_', expand=True)[1]
+    
+    _conditional_list = pd.read_csv(snakemake.input.conditional_list, sep='\t', header=0, usecols=['gene_name','pheno'])
+    _conditional_list = _conditional_list[(_conditional_list.pheno == snakemake.wildcards['pheno']) | (_conditional_list.pheno == snakemake.params.phenotype) ]
+    _conditional_list = _conditional_list.drop_duplicates() 
+    
+    if len(_conditional_list) == 0:
+        logging.info('No genes pass significance threshold for phenotype {}, exiting.'.format(snakemake.params.phenotype))
+        with gzip.open(snakemake.output.results_tsv, 'wt') as outfile:
+            outfile.write('# no significant hits for phenotype {}. \n'.format(snakemake.params.phenotype))
+        sys.exit(0)
+    else:
+        regions = regions.merge(_conditional_list, how='right')
+        
+    regions = regions.merge(results, how='left', on=['name'], validate='one_to_one')
+    
+    sig_genes = [results.name[results[k] < snakemake.params.significance_cutoff].values for k in pvcols_score + pvcols_lrt]
+    sig_genes = np.unique(np.concatenate(sig_genes))
+    
+    if len(sig_genes) == 0:
+        return None
+    
+    regions = regions.loc[regions.name.isin(sig_genes)]
+        
+    return regions
+
+
+# end: kernel parameters / functions
+
+# genotype path, vep-path:
+assert len(snakemake.params.ids) == len(snakemake.input.bed), 'Error: length of chromosome IDs does not match length of genotype files'
+geno_vep = zip(snakemake.params.ids, snakemake.input.bed, snakemake.input.mac_report, snakemake.input.ensembl_vep_tsv)
+
+# get the top hits
+regions_all = get_regions()
+if regions_all is None:
+    logging.info('No genes pass significance threshold, exiting.')
+    with gzip.open(snakemake.output.results_tsv, 'wt') as outfile:
+        outfile.write('# no hits below specified threshold ({}) for phenotype {}. \n'.format(snakemake.params.significance_cutoff, snakemake.params.phenotype))
+    sys.exit(0)
+
+
+# dict with paths to input files
+vep_h5 = {chrom: {'plus': p, 'minus': m} for chrom, (p, m) in zip(snakemake.params.ids, zip(snakemake.input.h5_rbp_plus, snakemake.input.h5_rbp_minus))}
+vep_bed = {chrom: {'plus': p, 'minus': m} for chrom, (p, m) in zip(snakemake.params.ids, zip(snakemake.input.bed_rbp_plus, snakemake.input.bed_rbp_minus))}
+
+# storing all results here
+results = []
+
+i_gene = 0
+i_chrom = 0
+
+# conditional analysis:
+# these genotypes will be used for the conditional analysis
+geno_cond = VariantLoaderSnpReader(Bed(snakemake.input.conditional_geno, count_A1=True, num_threads=1))
+geno_cond.update_individuals(covariatesloader.get_iids())
+
+# this file contains the mapping of associations to SNPs to condition on
+conditional_list = pd.read_csv(snakemake.input.conditional_list, sep='\t', header=0)
+conditional_list = conditional_list[(conditional_list.pheno == snakemake.params['phenotype']) | (conditional_list.pheno == snakemake.wildcards['pheno']) ].drop_duplicates()
+
+geno_cond.update_variants(intersect_ids(conditional_list.snp_rsid, geno_cond.get_vids()))
+logging.info('considering {} variants as covariates for conditional tests.'.format(len(geno_cond.get_vids())))
+
+# enter the chromosome loop:
+timer = Timer()
+for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
+
+    if chromosome.replace('chr','') not in regions_all.chrom.unique():
+        continue
+
+    if snakemake.params.debug:
+        # process only two chromosomes if debugging...
+        if i_chrom > 2:
+            break
+
+    timer.reset()
+
+    # get variants that pass MAF threshold:
+    mac_report = maf_filter(mac_report)
+    filter_vids = mac_report.index.values
+    filter_vids = sid_filter(filter_vids)
+
+    # function to identify protein LOF variants
+    is_plof = get_plof_id_func(vep_tsv)
+
+    # set up local collapsing
+    # collapser = LocalCollapsing(distance_threshold=51.)
+
+    for strand in ['plus', 'minus']:
+
+        # set up the regions to loop over for the chromosome
+        chromosome_id = chromosome.replace('chr', '')
+
+        regions = regions_all[(regions_all.chrom == chromosome_id) & (regions_all.strand == strand)]
+
+        if len(regions) == 0:
+            continue
+
+        # get variants that pass variant effect prediction threshold:
+        vep_vids, vep_mask, labels = vep_filter(vep_h5[chromosome][strand], vep_bed[chromosome][strand])
+
+        # combine
+        filter_vids_chromosome = intersect_ids(vep_vids, filter_vids)
+
+        # initialize the vep loader
+        veploader = Hdf5Loader(vep_bed[chromosome][strand], vep_h5[chromosome][strand], 'diffscore', from_janggu=True)
+        veploader.update_variants(filter_vids_chromosome)
+        veploader.set_mask(vep_mask)
+
+        # set up the variant loader (rbp variants) for the chromosome + strand
+        plinkloader = VariantLoaderSnpReader(Bed(bed, count_A1=True, num_threads=4))
+        plinkloader.update_variants(veploader.get_vids())
+        plinkloader.update_individuals(covariatesloader.get_iids())
+
+
+        # set up the genotype + vep loading function
+        def get_rbp(interval):
+
+            temp_genotypes, temp_vids, pos = plinkloader.genotypes_by_region(interval, return_pos=True)
+
+            if temp_genotypes is None:
+                raise GotNone
+
+            ncarrier = np.nansum(temp_genotypes, axis=0)
+            ncarrier = np.minimum(ncarrier, temp_genotypes.shape[0] - ncarrier).astype(int)
+
+            temp_genotypes -= np.nanmean(temp_genotypes, axis=0)
+            G1 = np.ma.masked_invalid(temp_genotypes).filled(0.)
+
+            # deepripe variant effect predictions (single RBP)
+            V1 = veploader.anno_by_id(temp_vids)
+
+            weights = get_weights_from_vep(V1)
+
+            S = get_simil_from_pos(pos)
+            S *= get_simil_from_vep(V1) # Schur product of two positive definite matrices is positive definite
+
+            cummac = mac_report.loc[temp_vids].Minor
+
+            V1 = pd.DataFrame(V1, columns=labels)[sorted(labels)]
+
+            return G1, temp_vids, weights, S, ncarrier, cummac, pos, V1
+        
+        
+        # conditional analysis
+        # set up the function to load the variants to condition on
+    
+        def get_conditional(interval):
+        
+            cond_snps_vid = conditional_list.loc[ conditional_list.gene_name == interval['gene_name'], 'snp_rsid' ].unique().tolist()
+        
+            temp_genotypes, temp_vids = geno_cond.genotypes_by_id(cond_snps_vid, return_pos=False)
+            temp_genotypes -= np.nanmean(temp_genotypes, axis=0)
+        
+            cond_snps = np.ma.masked_invalid(temp_genotypes).filled(0.)
+
+            return cond_snps, temp_vids
+        
+
+        # set up the test-function for a single gene
+        def test_gene(interval, seed):
+
+            interval = interval.to_dict()
+
+            pval_dict = {}
+            pval_dict['gene'] = interval['name']
+
+            out_dir = os.path.join(snakemake.params.out_dir_stats, interval['name'])
+            os.makedirs(out_dir, exist_ok=True)
+            
+            # conditional analysis:
+            # get the snps to condition on, and include them in the null model for the LRT
+            cond_snps, cond_snps_vid = get_conditional(interval)
+            null_model_lrt = LRTnoK(np.concatenate([X, cond_snps], axis=1), Y)
+
+            # conditional analysis:
+            # the score-test takes a second argument (G2) that allows conditioning on a second set of variants...
+            def pv_score(GV, G2=cond_snps):
+                # wraps score-test
+                pv = null_model_score.pv_alt_model(GV, G2)
+                if pv < 0.:
+                    pv = null_model_score.pv_alt_model(GV, G2, method='saddle')
+                return pv
+
+            def call_test(GV, name):
+                pval_dict['pv_score_' + name] = pv_score(GV)
+                altmodel = null_model_lrt.altmodel(GV)
+                res = null_model_lrt.pv_sim_chi2(250000, simzero=False, seed=seed)
+                pval_dict['pv_lrt_' + name] = res['pv']
+                pval_dict['lrtstat_' + name] = altmodel['stat']
+                if 'h2' in altmodel:
+                    pval_dict['h2_' + name] = altmodel['h2']
+
+                if res['pv'] != 1.:
+                    for stat in ['scale', 'dof', 'mixture', 'imax']:
+                        pval_dict[stat + '_' + name] = res[stat]
+                    if len(res['res'] > 0):
+                        pd.DataFrame({interval['name']: res['res']}).to_pickle(out_dir + '/{}.pkl.gz'.format(name))
+
+            # load rbp variants
+            G, vids, weights, S, ncarrier, cummac, pos, V = get_rbp(interval)
+            keep = ~is_plof(vids)
+
+            # cholesky
+            if G.shape[1] > 1:
+                L, flag1 = get_cholesky(S)
+            else:
+                L, flag1 = np.eye(G.shape[1]), -1
+
+            # do a score test (cholesky, and weighted cholesky)
+            GWL = G.dot(np.diag(weights, k=0)).dot(L)
+            call_test(GWL, 'linwcholesky')
+
+            # sanity checks
+            assert len(vids) == interval['n_snp'], 'Error: number of variants does not match! expected: {}  got: {}'.format(interval['n_snp'], len(vids))
+            assert cummac.sum() == interval['cumMAC'], 'Error: cumMAC does not match! expeced: {}, got: {}'.format(interval['cumMAC'], cummac.sum())
+
+            if np.any(keep):
+
+                if keep.sum() == 1:
+                    # only single SNP is not LOF
+                    GWL = G[:, keep].dot(np.diag(weights[keep], k=0)) # actually just the linear weighted kernel
+                else:
+                    L, flag2 = get_cholesky(S[np.ix_(keep, keep)])
+                    GWL = G[:, keep].dot(np.diag(weights[keep], k=0)).dot(L)
+
+                call_test(GWL, 'linwcholesky_notLOF')
+
+            # conditional analysis: keep names of SNPs that we condition on 
+            pval_dict['cond_snps'] = ','.join(cond_snps_vid)
+                
+            return pval_dict
+
+
+        logging.info('loaders for chromosome {}, strand "{}" initialized in {:.1f} seconds.'.format(chromosome, strand, timer.check()))
+        # run tests for all genes on the chromosome / strand
+        for _, region in regions.iterrows():
+
+            if snakemake.params.debug:
+                if i_gene > 5:
+                    continue
+            
+            try:
+                results.append(test_gene(region, i_gene))
+            except GotNone:
+                continue
+
+            i_gene += 1
+            logging.info('tested {} genes...'.format(i_gene))
+
+        i_chrom += 1
+        timer.reset()
+
+# export the results in a single table
+results = pd.DataFrame(results)
+results['pheno'] = snakemake.params.phenotype
+results.to_csv(snakemake.output.results_tsv, sep='\t', index=False)
