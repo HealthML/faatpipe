@@ -162,7 +162,7 @@ def get_weights_from_vep(V):
 
 def get_regions():
     # load the results, keep those below a certain p-value + present in conditional analysis list 
-    results = pd.read_csv(snakemake.input.results_tsv, sep='\t')
+    results = pd.read_csv(snakemake.input.results_tsv, sep='\t', comment='#')
 
     kern = snakemake.params.kernels
     if isinstance(kern, str):
@@ -170,7 +170,7 @@ def get_regions():
 
     pvcols_score = ['pv_score_' + k for k in kern]
     pvcols_lrt = ['pv_lrt_' + k for k in kern]
-    statcols = ['lrtstat_' + k for k in kern]
+    statcols = ['lrtstat_' + k for k in kern]    
     results = results[['gene', 'n_snp', 'cumMAC', 'nCarrier'] + statcols + pvcols_score + pvcols_lrt]
     
     results.rename(columns={'gene':'name'}, inplace=True)
