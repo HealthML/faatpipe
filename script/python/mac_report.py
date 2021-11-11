@@ -74,18 +74,18 @@ def main():
     if args.hwe > 0.:
         tmpfilename_vid = '{}.snplist'.format(args.out_prefix)
         if args.iid is not None:
-            plink_command = [args.plink2_path, '--keep', tmpfilename_iid, '--bfile', args.bed, '--memory', str(args.mem_mb), '--threads', str(args.threads), '--hwe', str(args.hwe), '--write-snplist', '--out', args.out_prefix]
+            plink_command = [args.plink2_path, '--keep', tmpfilename_iid, '--bfile', args.bed, '--memory', str(args.mem_mb-2000), '--threads', str(args.threads), '--hwe', str(args.hwe), '--write-snplist', '--out', args.out_prefix]
         else:
-            plink_command = [args.plink2_path, '--bfile', args.bed,'--memory', str(args.mem_mb), '--threads', str(args.threads), '--hwe', str(args.hwe), '--write-snplist', '--out', args.out_prefix]
+            plink_command = [args.plink2_path, '--bfile', args.bed,'--memory', str(args.mem_mb-2000), '--threads', str(args.threads), '--hwe', str(args.hwe), '--write-snplist', '--out', args.out_prefix]
         logging.info('plink command: {}'.format(' '.join(plink_command)))
         _ = subprocess.run(plink_command, check=True)
 
     # plink command to create count reports
     plink_command = [args.plink_path, '--bfile', args.bed]
     if args.iid is not None:
-        plink_command += ['--keep', tmpfilename_iid, '--freq', 'counts', 'gz','--memory', str(args.mem_mb), '--threads', str(args.threads), '--out', args.out_prefix]
+        plink_command += ['--keep', tmpfilename_iid, '--freq', 'counts', 'gz','--memory', str(args.mem_mb-2000), '--threads', str(args.threads), '--out', args.out_prefix]
     else:
-        plink_command += ['--freq', 'counts', 'gz', '--threads', str(args.threads),'--memory', str(args.mem_mb), '--out', args.out_prefix ]
+        plink_command += ['--freq', 'counts', 'gz', '--threads', str(args.threads),'--memory', str(args.mem_mb-2000), '--out', args.out_prefix ]
         
     if args.hwe > 0.:
         plink_command += ['--extract', tmpfilename_vid]
