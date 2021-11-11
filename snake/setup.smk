@@ -82,12 +82,11 @@ rule gather_complete_cases:
         '../script/python/gather_complete_cases.py'
         
 
-
 rule complete_cases_ancestry:
     # create ancestry keep-files for plink
     input:
         iid_txt = 'data/covariates/complete_cases/covariates.txt',
-        ancestry_tsv = config['ancestry_scoring_file']
+        ancestry_tsv = config['ancestry_scoring_file'] if 'ancestry_scoring_file' in config else 'ancestry_scoring_file_is_undefined'
     output:
         ancestry_keep = expand('data/ancestry_keep_files/{ancestries}.keep', ancestries=['AFR','AMR','EAS','EUR','SAS'])
     run:
