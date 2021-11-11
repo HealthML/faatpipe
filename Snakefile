@@ -47,7 +47,7 @@ wildcard_constraints:
 # local rules #
 ###############
 
-localrules: link_all, install_sh, install_seak, setup_all, run_deepripe_vep_all, run_ensembl_vep_all, evep_missense_proc_all, splice_ai_filter_and_overlap_with_genotypes_all, splice_ai_vcf_to_tsv_all, filter_variants_all, export_plof_burden_all, export_missense_burden_all, assoc_baseline_scoretest_all, mac_report_all, assoc_spliceai_linw_all, assoc_deepripe_single_localcollapsing_all, pLOF_nsnp_cummac_all, complete_cases_ancestry, gather_complete_cases
+localrules: link_all, link_genotypes, install_sh, install_seak, setup_all, run_deepripe_vep_all, run_ensembl_vep_all, evep_missense_proc_all, splice_ai_filter_and_overlap_with_genotypes_all, splice_ai_vcf_to_tsv_all, filter_variants_all, export_plof_burden_all, export_missense_burden_all, assoc_baseline_scoretest_all, mac_report_all, assoc_spliceai_linw_all, assoc_deepripe_single_localcollapsing_all, pLOF_nsnp_cummac_all, complete_cases_ancestry, gather_complete_cases
 
 
 ###############
@@ -81,7 +81,7 @@ rule link_genotypes:
     run:
         if not os.path.isdir('data/genotypes'):
             os.makedirs('data/genotypes')
-        shell('ln -s -r "$(readlink -f {input.bim})" {output.bim} && ln -s -r "$(readlink -f {input.fam})" {output.fam} &&  ln -s -r "$(readlink -f {input.bed})" {output.bed}')
+        shell('ln -s -r {input.bim} {output.bim} && ln -s -r {input.fam} {output.fam} &&  ln -s -r {input.bed} {output.bed}')
 
 rule link_reference:
     input:

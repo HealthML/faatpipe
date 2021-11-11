@@ -25,6 +25,11 @@ rule assoc_baseline_scoretest:
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence]
     output:
         results_tsv = 'work/association/baseline_scoretest/{filter_highconfidence}/{pheno}/results_{id}.tsv.gz'
+    threads:
+        1
+    resources:
+        mem_mb=4000,
+        time='2:00:00'
     log:
         'logs/association/baseline_scoretest/{filter_highconfidence}/{pheno}/{id}.log'
     conda:
@@ -48,6 +53,9 @@ rule pLOF_nsnp_cummac:
         tsv='work/association/baseline_scoretest/{filter_highconfidence}/{pheno}/pLOF_nSNP_cumMAC.tsv.gz'
     conda:
         '../env/seak.yml'
+    resources:
+        mem_mb=4000,
+        time='0:30:00'
     script:
         '../script/python/pLOF_nSNP_cumMAC.py'
       
