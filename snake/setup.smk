@@ -173,6 +173,9 @@ rule mac_report_ancestry:
         '../env/genomics.yml'
     threads:
         1
+    resources:
+        mem_mb=8000,
+        time="1:00:00"
     shell:
         'python script/python/mac_report.py '
         '--iid {input.iid_txt} '
@@ -181,6 +184,7 @@ rule mac_report_ancestry:
         '--plink_path {input.plink} '
         '--log {log} '
         '--threads {threads} '
+        '--mem_mb {resources.mem_mb} '
         '&> {log} '
         
 
