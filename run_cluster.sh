@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=controljob_%j
-#SBATCH --output='snakemake.log'
+#SBATCH --output=snakemake_%j.log
 #SBATCH --partition=vcpu
 #SBATCH --time=48:00:00
 #SBATCH -c 1

@@ -257,6 +257,11 @@ rule assoc_spliceai_linw:
         sclrt_nominal_significance_cutoff = 0.1
     log:
         'logs/association/sclrt_kernels_spliceai/{filter_highconfidence}_{pheno}.log'
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="8:00:00"
+    threads:
+        1
     conda:
         '../env/seak.yml'
     script:
@@ -296,6 +301,11 @@ rule assoc_spliceai_linw_eval_top_hits:
         debug = False
     log:
         'logs/association/sclrt_kernels_spliceai_eval_top_hits/{filter_highconfidence}_{pheno}.log'
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="1:30:00"
+    threads:
+        1
     conda:
         '../env/seak.yml'
     script:
@@ -339,6 +349,11 @@ rule assoc_spliceai_linw_retest_top_hits:
         random=False
     log:
         'logs/association/sclrt_kernels_spliceai_retest_top_hits/{filter_highconfidence}_{pheno}.log'
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="1:30:00"
+    threads:
+        1
     conda:
         '../env/seak.yml'
     script:
@@ -381,6 +396,11 @@ rule assoc_spliceai_linw_retest_random:
         random = True
     log:
         'logs/association/sclrt_kernels_spliceai_retest_top_hits/{filter_highconfidence}_{pheno}.log'
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="1:30:00"
+    threads:
+        1
     conda:
         '../env/seak.yml'
     script:
