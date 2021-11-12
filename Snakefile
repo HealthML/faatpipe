@@ -7,6 +7,17 @@ import gzip
 
 configfile: "conf/config.yaml"
 
+#####################
+# utility functions #
+#####################
+
+def get_mem_mb(mem_mb=10000, factor=1.5):
+    # return function that tries a higher memory limit for retries, scaling exponentially with a factor
+    def gm(wildcards, attempt):
+        return factor ** (attempt - 1) * mem_mb
+    return gm
+
+
 ###################################
 # samplesheet for the plink files #
 ###################################
@@ -16,7 +27,6 @@ plinkfiles = SampleSheet(config['samplesheet_plink'])
 
 for col in ['bim','fam','bed']:
     assert col in plinkfiles.sheet.columns, 'Error: column {} is missing from samplesheet!'.format(col)
-    
     
     
 ##############
