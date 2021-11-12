@@ -3,6 +3,7 @@
 # the {id} wildcard refers to the different chromosomes
 # the {pheno} wildcard refers to the different phenotypes
 
+
 rule assoc_baseline_scoretest:
     # runs "baseline" association tests:
     # score tests for indicator variables
@@ -468,6 +469,11 @@ rule assoc_deepripe_multiple_cholesky:
         sclrt_nominal_significance_cutoff = 0.1
     log:
         'logs/association/sclrt_kernels_deepripe_multiple/{filter_highconfidence}_{pheno}.log'
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="8:00:00"
+    threads:
+        1
     conda:
         '../env/seak.yml'
     script:
@@ -507,6 +513,11 @@ rule assoc_deepripe_multiple_cholesky_eval_top_hits:
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
         rbp_of_interest = rules.assoc_deepripe_multiple_cholesky.params.rbp_of_interest,
         debug = False
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="01:00:00"
+    threads:
+        1
     log:
         'logs/association/sclrt_kernels_deepripe_multiple_eval_top_hits/{filter_highconfidence}_{pheno}.log'
     conda:
@@ -552,6 +563,11 @@ rule assoc_deepripe_multiple_cholesky_retest_top_hits:
         rbp_of_interest = rules.assoc_deepripe_multiple_cholesky.params.rbp_of_interest,
         debug = False,
         random = False
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="01:00:00"
+    threads:
+        1
     log:
         'logs/association/sclrt_kernels_deepripe_multiple_retest_top_hits/{filter_highconfidence}_{pheno}.log'
     conda:
