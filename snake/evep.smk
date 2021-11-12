@@ -232,7 +232,7 @@ rule export_missense_burden:
     log:
         'logs/evep/export_missense_burden_{filter_highconfidence}_{id}.log'
     resources:
-        mem_mb=8000,
+        mem_mb=12000,
         time='1:00:00'
     threads:
         1
