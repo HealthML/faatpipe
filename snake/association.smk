@@ -91,6 +91,11 @@ rule assoc_missense_localcollapsing:
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
         sclrt_nominal_significance_cutoff = 0.1,
         debug=False
+    resources:
+        mem_mb=get_mem_mb(12000,1.5),
+        time="24:00:00"
+    threads:
+        1
     log:
         'logs/association/sclrt_kernels_missense/{filter_highconfidence}_{pheno}.log'
     conda:
@@ -128,6 +133,11 @@ rule assoc_missense_localcollapsing_eval_top_hits:
         out_dir_stats = lambda wc: 'work/association/sclrt_kernels_missense/{filter_highconfidence}/{pheno}/top_hits/'.format(filter_highconfidence=wc.filter_highconfidence, pheno=wc.pheno),
         ids = plinkfiles.getIds(),
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence]
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="02:30:00"
+    threads:
+        1
     log:
         'logs/association/sclrt_kernels_missense_eval_top_hits/{filter_highconfidence}_{pheno}.log'
     conda:
@@ -171,6 +181,11 @@ rule assoc_missense_localcollapsing_retest_top_hits:
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
         debug=False,
         random=False
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="02:30:00"
+    threads:
+        1
     log:
         'logs/association/sclrt_kernels_missense_retest_top_hits/{filter_highconfidence}_{pheno}.log'
     conda:
@@ -214,6 +229,11 @@ rule assoc_missense_localcollapsing_retest_random:
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
         debug=False,
         random=True
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="2:30:00"
+    threads:
+        1
     log:
         'logs/association/sclrt_kernels_missense_retest_random/{filter_highconfidence}_{pheno}.log'
     conda:
