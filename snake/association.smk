@@ -93,7 +93,7 @@ rule assoc_missense_localcollapsing:
         debug=False
     resources:
         mem_mb=get_mem_mb(12000,1.5),
-        time="24:00:00"
+        time="48:00:00"
     threads:
         1
     log:
@@ -125,7 +125,7 @@ rule assoc_missense_localcollapsing_eval_top_hits:
     output:
         out_ok = touch('work/association/sclrt_kernels_missense/{filter_highconfidence}/{pheno}/top_hits/all.ok')
     params:
-        kernels = ['lincollapsed','linwcollapsed','lincollapsed_cLOF','linwcollapsed_cLOF','linb','linwb','linb_mrgLOF','linwb_mrgLOF'], # genes with p < 1e-7 in one of these kernels will be analysed in detail
+        kernels = ['linwcollapsed','linwcollapsed_cLOF','linwb','linwb_mrgLOF'], # genes with p < 1e-7 in one of these kernels will be analysed in detail
         phenotype = lambda wc: phenotypes[ wc.pheno ],
         covariate_column_names = config['covariate_column_names'],
         max_maf = config['maf_cutoff'],
@@ -278,8 +278,8 @@ rule assoc_spliceai_linw:
     log:
         'logs/association/sclrt_kernels_spliceai/{filter_highconfidence}_{pheno}.log'
     resources:
-        mem_mb=get_mem_mb(10000,1.5),
-        time="8:00:00"
+        mem_mb=get_mem_mb(12000,1.5),
+        time="24:00:00"
     threads:
         1
     conda:
