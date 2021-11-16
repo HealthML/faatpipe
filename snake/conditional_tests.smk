@@ -2,6 +2,42 @@
 # TODO: add conditional_list to config.yaml
 
 
+rule assoc_baseline_scoretest_conditional_analysis:
+    # performs conditional analysis for the baseline 
+    input:
+        h5_missense = rules.export_missense_burden.output.h5,
+        iid_missense = rules.export_missense_burden.output.iid_txt,
+        gid_missense = rules.export_missense_burden.output.gene_txt,
+        h5_lof = rules.export_plof_burden.output.h5,
+        iid_lof = rules.export_plof_burden.output.iid_txt,
+        gid_lof = rules.export_plof_burden.output.gene_txt,
+        covariates_tsv = config['covariates'],
+        phenotypes_tsv = config['phenotypes'],
+        results_tsv = rules.assoc_baseline_scoretest.output['results_tsv'],
+        conditional_list = config['conditional_list'],
+        conditional_geno = config['conditional_geno'] + '.bed'
+    output:
+        results_tsv = 'work/association/baseline_scoretest/{filter_highconfidence}/{pheno}/conditional_analysis/conditionalres_{id}.tsv.gz'
+    params:
+        # phenotypes is a dictionary that maps file-prefixes to column names, see ../Snakefile
+        phenotype = lambda wc: phenotypes[ wc.pheno ],
+        covariate_column_names = config['covariate_column_names'],
+        filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
+        columns = ['pv_pLOF','pv_missense','pv_mrg'],
+        significance_cutoff=1e-7
+    threads:
+        1
+    resources:
+        mem_mb=4000,
+        time='1:00:00'
+    log:
+        'logs/association/baseline_scoretest_conditional_analysis/{filter_highconfidence}/{pheno}/{id}.log'
+    conda:
+        '../env/seak.yml'
+    script:
+        '../script/python/assoc_baseline_scoretest_conditional_analysis.py'
+        
+
 rule assoc_missense_localcollapsing_conditional_analysis:
     # calculates gene-specific LRT p-values for the most significant genes for missense variants
     # conditions on a list of common variants
