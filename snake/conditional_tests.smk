@@ -32,6 +32,9 @@ rule assoc_missense_localcollapsing_conditional_analysis:
         out_dir_stats=lambda wc, output: '/'.join(output['results_tsv'].split('/')[:-1]),
         significance_cutoff=1e-7,
         debug=False
+    resources:
+        mem_mb=12000,
+        time="02:30:00"
     log:
         'logs/association/sclrt_kernels_missense_conditional_analysis/{filter_highconfidence}_{pheno}.log'
     conda:
@@ -77,6 +80,9 @@ rule assoc_spliceai_linw_conditional_analysis:
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
         debug = False,
         significance_cutoff = 1e-7
+    resources:
+        mem_mb=10000,
+        time="02:30:00"
     log:
         'logs/association/sclrt_kernels_spliceai_conditional_analysis/{filter_highconfidence}_{pheno}.log'
     conda:
@@ -125,6 +131,9 @@ rule assoc_deepripe_multiple_cholesky_conditional_analysis:
         debug = False,
         random = False,
         significance_cutoff = 1e-7
+    resources:
+        mem_mb=10000,
+        time="02:30:00"
     log:
         'logs/association/sclrt_kernels_deepripe_multiple_conditional_analysis/{filter_highconfidence}_{pheno}.log'
     conda:
@@ -137,3 +146,10 @@ rule assoc_deepripe_multiple_cholesky_conditional_analysis_all:
     # runs rule above for all phenotypes - this will effectively run the entire pipeline for DeepRiPe variants
     input:
         expand(rules.assoc_deepripe_multiple_cholesky_conditional_analysis.output, pheno=phenotypes.keys(), filter_highconfidence=['all'])
+        
+        
+rule conditional_analysis_all:
+    input:
+        rules.assoc_deepripe_multiple_cholesky_conditional_analysis_all.input,
+        rules.all_assoc_spliceai_linw_conditional_analysis.input,
+        rules.all_assoc_missense_localcollapsing_conditional_analysis.input
