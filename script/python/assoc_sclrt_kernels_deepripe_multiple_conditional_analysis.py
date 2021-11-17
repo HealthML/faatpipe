@@ -305,8 +305,8 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
             if temp_genotypes is None:
                 raise GotNone
 
-            ncarrier = np.nansum(temp_genotypes, axis=0)
-            ncarrier = np.minimum(ncarrier, temp_genotypes.shape[0] - ncarrier).astype(int)
+            nanmean = np.nanmean(temp_genotypes, axis=0) 
+            ncarrier = np.nansum(np.where((nanmean / 2 > 0.5), abs(temp_genotypes - 2), temp_genotypes) > 0, axis=0)# calculated differently here because alleles can be flipped!
 
             temp_genotypes -= np.nanmean(temp_genotypes, axis=0)
             G1 = np.ma.masked_invalid(temp_genotypes).filled(0.)

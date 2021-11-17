@@ -219,7 +219,7 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
 
         temp_genotypes, temp_vids = plinkloader.genotypes_by_id(vids, return_pos=False)
 
-        ncarrier = np.nansum(np.nansum(temp_genotypes, axis=1) >= 1)
+        ncarrier = np.nansum(temp_genotypes > 0, axis=0)
 
         temp_genotypes -= np.nanmean(temp_genotypes, axis=0)
         G1 = np.ma.masked_invalid(temp_genotypes).filled(0.)
