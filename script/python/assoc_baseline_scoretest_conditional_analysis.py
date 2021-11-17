@@ -7,6 +7,7 @@ logging.basicConfig(filename=snakemake.log[0], level=logging.INFO)
 
 import numpy as np
 import pandas as pd
+import gzip
 
 from seak.scoretest import ScoretestNoK
 from seak.data_loaders import intersect_ids, CovariatesLoaderCSV, VariantLoaderSnpReader

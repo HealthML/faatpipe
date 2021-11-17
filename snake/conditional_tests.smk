@@ -29,13 +29,18 @@ rule assoc_baseline_scoretest_conditional_analysis:
         1
     resources:
         mem_mb=4000,
-        time='1:00:00'
+        time='0:10:00'
     log:
         'logs/association/baseline_scoretest_conditional_analysis/{filter_highconfidence}/{pheno}/{id}.log'
     conda:
         '../env/seak.yml'
     script:
         '../script/python/assoc_baseline_scoretest_conditional_analysis.py'
+        
+        
+rule assoc_baseline_scoretest_conditional_analysis_all:
+    input:
+        expand(rules.assoc_baseline_scoretest_conditional_analysis.output, filter_highconfidence=['all'], pheno=phenotypes.keys(), id=plinkfiles.getIds())
         
 
 rule assoc_missense_localcollapsing_conditional_analysis:
@@ -188,4 +193,5 @@ rule conditional_analysis_all:
     input:
         rules.assoc_deepripe_multiple_cholesky_conditional_analysis_all.input,
         rules.all_assoc_spliceai_linw_conditional_analysis.input,
-        rules.all_assoc_missense_localcollapsing_conditional_analysis.input
+        rules.all_assoc_missense_localcollapsing_conditional_analysis.input,
+        rules.assoc_baseline_scoretest_conditional_analysis_all.input
