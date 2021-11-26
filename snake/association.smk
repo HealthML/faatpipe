@@ -182,7 +182,7 @@ rule assoc_missense_localcollapsing_retest_top_hits:
         debug=False,
         random=False
     resources:
-        mem_mb=get_mem_mb(10000,1.5),
+        mem_mb=get_mem_mb(15000,1.5),
         time="02:30:00"
     threads:
         1
@@ -322,8 +322,8 @@ rule assoc_spliceai_linw_eval_top_hits:
     log:
         'logs/association/sclrt_kernels_spliceai_eval_top_hits/{filter_highconfidence}_{pheno}.log'
     resources:
-        mem_mb=get_mem_mb(10000,1.5),
-        time="1:30:00"
+        mem_mb=get_mem_mb(12000,1.5),
+        time="2:30:00"
     threads:
         1
     conda:
