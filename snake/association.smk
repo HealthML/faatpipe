@@ -666,3 +666,29 @@ rule assoc_deepripe_multiple_cholesky_retest_random_all:
     input:
         expand(rules.assoc_deepripe_multiple_cholesky_retest_random.output, pheno=phenotypes.keys(), filter_highconfidence=['all'])
 
+
+#######
+# all #
+#######
+
+
+rule all_assoc:
+    input:
+        rules.assoc_baseline_scoretest_all.input,
+        rules.assoc_missense_localcollapsing_all.input,
+        rules.assoc_spliceai_linw_all.input,
+        rules.assoc_deepripe_multiple_cholesky_all.input
+
+        
+rule all_eval_top_hits:
+    input:
+        rules.assoc_missense_localcollapsing_eval_top_hits_all.input,
+        rules.assoc_spliceai_linw_eval_top_hits_all.input,
+        rules.assoc_deepripe_multiple_cholesky_eval_top_hits_all.input
+        
+        
+rule all_retest_top_hits:
+    input:
+        rules.assoc_missense_localcollapsing_retest_top_hits_all.input,
+        rules.assoc_spliceai_linw_retest_top_hits_all.input,
+        rules.assoc_deepripe_multiple_cholesky_retest_top_hits_all.input
