@@ -285,7 +285,7 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
         G1, vids, weights, ncarrier, cummac, pos, ref, alt, cosine_similarity = get_missense(interval)
 
         # sanity checks
-        assert len(vids) == interval['n_snp'], 'Error: number of variants does not match! expected: {}  got: {}'.format(interval['n_snp'], len(vids))
+        # assert len(vids) == interval['n_snp'], 'Error: number of variants does not match! expected: {}  got: {}'.format(interval['n_snp'], len(vids))
         # assert cummac.sum() == interval['cumMAC'], 'Error: cumMAC does not match! expeced: {}, got: {}'.format(interval['cumMAC'], cummac.sum())
 
         # perform test using gene-specific distribution, gbvc
