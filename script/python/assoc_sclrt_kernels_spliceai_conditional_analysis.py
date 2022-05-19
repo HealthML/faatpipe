@@ -38,7 +38,11 @@ covariatesloader = CovariatesLoaderCSV(snakemake.params.phenotype,
 Y, X = covariatesloader.get_one_hot_covariates_and_phenotype('noK')
 
 null_model_score = ScoretestNoK(Y, X)
-null_model_lrt = LRTnoK(X, Y)
+
+# conditional analysis:
+# we need to fit gene-specific null models for the LRT!
+# null_model_lrt = LRTnoK(X, Y)
+null_model_lrt = None
 
 
 # set up function to filter variants:
@@ -77,8 +81,9 @@ def sid_filter(vids):
                 
     return intersect_ids(vids, sid)
 
+
 def get_regions():
-    # load the results, keep those below a certain p-value
+    # load the results, keep those below a certain p-value + present in conditional analysis list 
     results = pd.read_csv(snakemake.input.results_tsv, sep='\t')
 
     kern = snakemake.params.kernels
@@ -89,36 +94,40 @@ def get_regions():
     pvcols_lrt = ['pv_lrt_' + k for k in kern]
     statcols = ['lrtstat_' + k for k in kern]
     results = results[['gene', 'n_snp', 'cumMAC', 'nCarrier'] + statcols + pvcols_score + pvcols_lrt]
-
-    if snakemake.params['random']:
-        # get genes below threshold
-        genes = [results.gene[results[k] < snakemake.params.significance_cutoff].values for k in pvcols_score + pvcols_lrt]
-        genes = np.unique(np.concatenate(genes))
-        
-        if len(genes) > 0:
-            # make sure we don't pick ones that are significant
-            results = results[~results.gene.isin(genes)]
-                    
-        results = results[results.cumMAC >= 5] # make sure we dont sample noise
-        results = results.sample(100, replace=False) # sample 20 genes at random
-        genes = results['gene'].values.flatten()
-    else:
-        # get genes below threshold
-        genes = [results.gene[results[k] < snakemake.params.significance_cutoff].values for k in pvcols_score + pvcols_lrt]
-        genes = np.unique(np.concatenate(genes))
-
-    if len(genes) == 0:
-        return None
-
+    
+    results.rename(columns={'gene':'name'}, inplace=True)
+    
     # set up the regions to loop over for the chromosome
     regions = pd.read_csv(snakemake.input.regions_bed, sep='\t', header=None, usecols=[0 ,1 ,2 ,3, 5], dtype={0 :str, 1: np.int32, 2 :np.int32, 3 :str, 5:str})
     regions.columns = ['chrom', 'start', 'end', 'name', 'strand']
     regions['strand'] = regions.strand.map({'+': 'plus', '-': 'minus'})
-    regions = regions.set_index('name').loc[genes]
-
-    regions = regions.join(results.set_index('gene'), how='left').reset_index()
+    
+    # conditional analysis, keep only genes that are provided in conditional_list
+    regions['gene_name'] = regions['name'].str.split('_', expand=True)[1]
+    
+    _conditional_list = pd.read_csv(snakemake.input.conditional_list, sep='\t', header=0, usecols=['gene_name','pheno'])
+    _conditional_list = _conditional_list[(_conditional_list.pheno == snakemake.wildcards['pheno']) | (_conditional_list.pheno == snakemake.params.phenotype) ]
+    _conditional_list = _conditional_list.drop_duplicates() 
+    
+    if len(_conditional_list) == 0:
+        logging.info('No genes pass significance threshold for phenotype {}, exiting.'.format(snakemake.params.phenotype))
+        with gzip.open(snakemake.output.results_tsv, 'wt') as outfile:
+            outfile.write('# no significant hits for phenotype {}. \n'.format(snakemake.params.phenotype))
+        sys.exit(0)
+    else:
+        regions = regions.merge(_conditional_list, how='right')
+        
+    regions = regions.merge(results, how='left', on=['name'], validate='one_to_one')
+    
+    sig_genes = [results.name[results[k] < snakemake.params.significance_cutoff].values for k in pvcols_score + pvcols_lrt]
+    sig_genes = np.unique(np.concatenate(sig_genes))
+    
+    if len(sig_genes) == 0:
+        return None
+    
+    regions = regions.loc[regions.name.isin(sig_genes)]
+        
     return regions
-
 
 # genotype path, vep-path:
 assert len(snakemake.params.ids) == len (snakemake.input.bed), 'Error: length of chromosome IDs does not match length of genotype files'
@@ -133,14 +142,25 @@ if regions_all is None:
         outfile.write('# no hits below specified threshold ({}) for phenotype {}. \n'.format(snakemake.params.significance_cutoff, snakemake.params.phenotype))
     sys.exit(0)
 
-
-logging.info('About to evaluate variants in {} genes'.format(len(regions_all)))
+logging.info('About to evaluate variants in {} genes'.format(len(regions_all.name.unique())))
 
 # storing all results here
 results = []
 
 i_gene = 0
 i_chrom = 0
+
+# conditional analysis:
+# these genotypes will be used for the conditional analysis
+geno_cond = VariantLoaderSnpReader(Bed(snakemake.input.conditional_geno, count_A1=True, num_threads=1))
+geno_cond.update_individuals(covariatesloader.get_iids())
+
+# this file contains the mapping of associations to SNPs to condition on
+conditional_list = pd.read_csv(snakemake.input.conditional_list, sep='\t', header=0)
+conditional_list = conditional_list[(conditional_list.pheno == snakemake.params['phenotype']) | (conditional_list.pheno == snakemake.wildcards['pheno']) ].drop_duplicates()
+
+geno_cond.update_variants(intersect_ids(conditional_list.snp_rsid, geno_cond.get_vids()))
+logging.info('considering {} variants as covariates for conditional tests.'.format(len(geno_cond.get_vids())))
 
 # enter the chromosome loop:
 timer = Timer()
@@ -268,6 +288,21 @@ for i, (chromosome, bed, vep_tsv, ensembl_vep_tsv, mac_report, h5_lof, iid_lof, 
 
         return G2
 
+    
+    # conditional analysis
+    # set up the function to load the variants to condition on
+    
+    def get_conditional(interval):
+        
+        cond_snps_vid = conditional_list.loc[ conditional_list.gene_name == interval['gene_name'], 'snp_rsid' ].unique().tolist()
+        
+        temp_genotypes, temp_vids = geno_cond.genotypes_by_id(cond_snps_vid, return_pos=False)
+        temp_genotypes -= np.nanmean(temp_genotypes, axis=0)
+        
+        cond_snps = np.ma.masked_invalid(temp_genotypes).filled(0.)
+
+        return cond_snps, temp_vids
+    
 
     # set up the test-function for a single gene
     def test_gene(interval, seed):
@@ -278,22 +313,30 @@ for i, (chromosome, bed, vep_tsv, ensembl_vep_tsv, mac_report, h5_lof, iid_lof, 
         out_dir = os.path.join(snakemake.params.out_dir_stats, interval['name'])
         os.makedirs(out_dir, exist_ok=True)
 
-        def pv_score(GV):
-            # wraps score test
-            pv = null_model_score.pv_alt_model(GV)
+        # conditional analysis:
+        # get the snps to condition on, and include them in the null model for the LRT
+        cond_snps, cond_snps_vid = get_conditional(interval)
+        null_model_lrt = LRTnoK(np.concatenate([X, cond_snps], axis=1), Y)
+        
+        # conditional analysis:
+        # the score-test takes a second argument (G2) that allows conditioning on a second set of variants...
+        def pv_score(GV, G2=cond_snps):
+            # wraps score-test
+            pv = null_model_score.pv_alt_model(GV, G2)
             if pv < 0.:
-                pv = null_model_score.pv_alt_model(GV, method='saddle')
+                pv = null_model_score.pv_alt_model(GV, G2, method='saddle')
             return pv
 
         def call_test(GV, name):
             pval_dict['pv_score_' + name] = pv_score(GV)
+            
             altmodel = null_model_lrt.altmodel(GV)
+
             res = null_model_lrt.pv_sim_chi2(250000, simzero=False, seed=seed)
             pval_dict['pv_lrt_' + name] = res['pv']
             pval_dict['lrtstat_' + name ] = altmodel['stat']
             if 'h2' in altmodel:
                 pval_dict['h2_' + name ] = altmodel['h2']
-
             if res['pv'] != 1.:
                 for stat in ['scale', 'dof', 'mixture', 'imax']:
                     pval_dict[stat + '_' + name] = res[stat]
@@ -307,13 +350,23 @@ for i, (chromosome, bed, vep_tsv, ensembl_vep_tsv, mac_report, h5_lof, iid_lof, 
         keep = ~is_plof
 
         # sanity checks
-        # assert len(vids) == interval['n_snp'], 'Error: number of variants does not match! expected: {}  got: {}'.format(interval['n_snp'], len(vids))
-        # assert cummac.sum() == interval['cumMAC'], 'Error: cumMAC does not match! expeced: {}, got: {}'.format(interval['cumMAC'], cummac.sum())
+        assert len(vids) == interval['n_snp'], 'Error: number of variants does not match! expected: {}  got: {}'.format(interval['n_snp'], len(vids))
+        assert cummac.sum() == interval['cumMAC'], 'Error: cumMAC does not match! expeced: {}, got: {}'.format(interval['cumMAC'], cummac.sum())
 
 
         # do a score burden test (max weighted), this is different than the baseline!
         G1_burden = np.max(np.where(G1 > 0.5, np.sqrt(weights), 0.), axis=1, keepdims=True)
-        call_test(G1_burden, 'linwb')
+        
+        try:
+            call_test(G1_burden, 'linwb')
+        except AssertionError as err:
+            out_dump_np = '{}_{}_{{}}_covar.npy'.format(interval['name'],snakemake.params.phenotype)
+            np.save(out_dump_np.format('G1burden'), G1_burden)
+            np.save(out_dump_np.format('G1'), G1)
+            np.save(out_dump_np.format('Covar'), np.concatenate([X, cond_snps], axis=1))
+            np.save(out_dump_np.format('Y'), Y)
+            logging.error('AssertionError encountered when testing gene {}, conditioning on {}. dumping Y, covariates and G1 to {}'.format(interval['name'], ','.join(cond_snps_vid),out_dump_np.format('*')))
+            raise err
 
         # linear weighted kernel
         G1 = G1.dot(np.diag(np.sqrt(weights), k=0))
@@ -340,6 +393,9 @@ for i, (chromosome, bed, vep_tsv, ensembl_vep_tsv, mac_report, h5_lof, iid_lof, 
             else:
                 logging.info('All Splice-AI variants for gene {} where already identified by the Ensembl variant effect predictor'.format(interval['name']))
 
+        # conditional analysis: keep names of SNPs that we condition on 
+        pval_dict['cond_snps'] = ','.join(cond_snps_vid)
+                
         return pval_dict
 
 
@@ -347,6 +403,10 @@ for i, (chromosome, bed, vep_tsv, ensembl_vep_tsv, mac_report, h5_lof, iid_lof, 
     # run tests for all genes on the chromosome
     for _, region in regions.iterrows():
 
+        if snakemake.params.debug:
+            if i_gene > 2:
+                continue
+        
         try:
             results.append(test_gene(region, i_gene)) # i_gene is used as the random seed to make things reproducible
         except GotNone:

@@ -3,6 +3,7 @@
 # the {id} wildcard refers to the different chromosomes
 # the {pheno} wildcard refers to the different phenotypes
 
+
 rule assoc_baseline_scoretest:
     # runs "baseline" association tests:
     # score tests for indicator variables
@@ -25,6 +26,11 @@ rule assoc_baseline_scoretest:
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence]
     output:
         results_tsv = 'work/association/baseline_scoretest/{filter_highconfidence}/{pheno}/results_{id}.tsv.gz'
+    threads:
+        1
+    resources:
+        mem_mb=4000,
+        time='2:00:00'
     log:
         'logs/association/baseline_scoretest/{filter_highconfidence}/{pheno}/{id}.log'
     conda:
@@ -48,6 +54,9 @@ rule pLOF_nsnp_cummac:
         tsv='work/association/baseline_scoretest/{filter_highconfidence}/{pheno}/pLOF_nSNP_cumMAC.tsv.gz'
     conda:
         '../env/seak.yml'
+    resources:
+        mem_mb=4000,
+        time='0:30:00'
     script:
         '../script/python/pLOF_nSNP_cumMAC.py'
       
@@ -82,6 +91,11 @@ rule assoc_missense_localcollapsing:
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
         sclrt_nominal_significance_cutoff = 0.1,
         debug=False
+    resources:
+        mem_mb=get_mem_mb(12000,1.5),
+        time="48:00:00"
+    threads:
+        1
     log:
         'logs/association/sclrt_kernels_missense/{filter_highconfidence}_{pheno}.log'
     conda:
@@ -111,7 +125,7 @@ rule assoc_missense_localcollapsing_eval_top_hits:
     output:
         out_ok = touch('work/association/sclrt_kernels_missense/{filter_highconfidence}/{pheno}/top_hits/all.ok')
     params:
-        kernels = ['lincollapsed','linwcollapsed','lincollapsed_cLOF','linwcollapsed_cLOF','linb','linwb','linb_mrgLOF','linwb_mrgLOF'], # genes with p < 1e-7 in one of these kernels will be analysed in detail
+        kernels = ['linwcollapsed','linwcollapsed_cLOF','linwb','linwb_mrgLOF'], # genes with p < 1e-7 in one of these kernels will be analysed in detail
         phenotype = lambda wc: phenotypes[ wc.pheno ],
         covariate_column_names = config['covariate_column_names'],
         max_maf = config['maf_cutoff'],
@@ -119,6 +133,11 @@ rule assoc_missense_localcollapsing_eval_top_hits:
         out_dir_stats = lambda wc: 'work/association/sclrt_kernels_missense/{filter_highconfidence}/{pheno}/top_hits/'.format(filter_highconfidence=wc.filter_highconfidence, pheno=wc.pheno),
         ids = plinkfiles.getIds(),
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence]
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="02:30:00"
+    threads:
+        1
     log:
         'logs/association/sclrt_kernels_missense_eval_top_hits/{filter_highconfidence}_{pheno}.log'
     conda:
@@ -162,6 +181,11 @@ rule assoc_missense_localcollapsing_retest_top_hits:
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
         debug=False,
         random=False
+    resources:
+        mem_mb=get_mem_mb(15000,1.5),
+        time="02:30:00"
+    threads:
+        1
     log:
         'logs/association/sclrt_kernels_missense_retest_top_hits/{filter_highconfidence}_{pheno}.log'
     conda:
@@ -205,6 +229,11 @@ rule assoc_missense_localcollapsing_retest_random:
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
         debug=False,
         random=True
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="2:30:00"
+    threads:
+        1
     log:
         'logs/association/sclrt_kernels_missense_retest_random/{filter_highconfidence}_{pheno}.log'
     conda:
@@ -248,6 +277,11 @@ rule assoc_spliceai_linw:
         sclrt_nominal_significance_cutoff = 0.1
     log:
         'logs/association/sclrt_kernels_spliceai/{filter_highconfidence}_{pheno}.log'
+    resources:
+        mem_mb=get_mem_mb(12000,1.5),
+        time="24:00:00"
+    threads:
+        1
     conda:
         '../env/seak.yml'
     script:
@@ -287,6 +321,11 @@ rule assoc_spliceai_linw_eval_top_hits:
         debug = False
     log:
         'logs/association/sclrt_kernels_spliceai_eval_top_hits/{filter_highconfidence}_{pheno}.log'
+    resources:
+        mem_mb=get_mem_mb(12000,1.5),
+        time="2:30:00"
+    threads:
+        1
     conda:
         '../env/seak.yml'
     script:
@@ -330,6 +369,11 @@ rule assoc_spliceai_linw_retest_top_hits:
         random=False
     log:
         'logs/association/sclrt_kernels_spliceai_retest_top_hits/{filter_highconfidence}_{pheno}.log'
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="1:30:00"
+    threads:
+        1
     conda:
         '../env/seak.yml'
     script:
@@ -372,6 +416,11 @@ rule assoc_spliceai_linw_retest_random:
         random = True
     log:
         'logs/association/sclrt_kernels_spliceai_retest_top_hits/{filter_highconfidence}_{pheno}.log'
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="1:30:00"
+    threads:
+        1
     conda:
         '../env/seak.yml'
     script:
@@ -460,6 +509,11 @@ rule assoc_deepripe_multiple_cholesky:
         sclrt_nominal_significance_cutoff = 0.1
     log:
         'logs/association/sclrt_kernels_deepripe_multiple/{filter_highconfidence}_{pheno}.log'
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="8:00:00"
+    threads:
+        1
     conda:
         '../env/seak.yml'
     script:
@@ -499,6 +553,11 @@ rule assoc_deepripe_multiple_cholesky_eval_top_hits:
         filter_highconfidence = lambda wc: {'all': False, 'highconf_only': True}[wc.filter_highconfidence],
         rbp_of_interest = rules.assoc_deepripe_multiple_cholesky.params.rbp_of_interest,
         debug = False
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="01:00:00"
+    threads:
+        1
     log:
         'logs/association/sclrt_kernels_deepripe_multiple_eval_top_hits/{filter_highconfidence}_{pheno}.log'
     conda:
@@ -544,6 +603,11 @@ rule assoc_deepripe_multiple_cholesky_retest_top_hits:
         rbp_of_interest = rules.assoc_deepripe_multiple_cholesky.params.rbp_of_interest,
         debug = False,
         random = False
+    resources:
+        mem_mb=get_mem_mb(10000,1.5),
+        time="01:00:00"
+    threads:
+        1
     log:
         'logs/association/sclrt_kernels_deepripe_multiple_retest_top_hits/{filter_highconfidence}_{pheno}.log'
     conda:
@@ -602,3 +666,29 @@ rule assoc_deepripe_multiple_cholesky_retest_random_all:
     input:
         expand(rules.assoc_deepripe_multiple_cholesky_retest_random.output, pheno=phenotypes.keys(), filter_highconfidence=['all'])
 
+
+#######
+# all #
+#######
+
+
+rule all_assoc:
+    input:
+        rules.assoc_baseline_scoretest_all.input,
+        rules.assoc_missense_localcollapsing_all.input,
+        rules.assoc_spliceai_linw_all.input,
+        rules.assoc_deepripe_multiple_cholesky_all.input
+
+        
+rule all_eval_top_hits:
+    input:
+        rules.assoc_missense_localcollapsing_eval_top_hits_all.input,
+        rules.assoc_spliceai_linw_eval_top_hits_all.input,
+        rules.assoc_deepripe_multiple_cholesky_eval_top_hits_all.input
+        
+        
+rule all_retest_top_hits:
+    input:
+        rules.assoc_missense_localcollapsing_retest_top_hits_all.input,
+        rules.assoc_spliceai_linw_retest_top_hits_all.input,
+        rules.assoc_deepripe_multiple_cholesky_retest_top_hits_all.input

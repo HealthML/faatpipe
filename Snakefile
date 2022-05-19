@@ -7,6 +7,17 @@ import gzip
 
 configfile: "conf/config.yaml"
 
+#####################
+# utility functions #
+#####################
+
+def get_mem_mb(mem_mb=10000, factor=1.5):
+    # return function that tries a higher memory limit for retries, scaling exponentially with a factor
+    def gm(wildcards, attempt):
+        return factor ** (attempt - 1) * mem_mb
+    return gm
+
+
 ###################################
 # samplesheet for the plink files #
 ###################################
@@ -46,7 +57,7 @@ wildcard_constraints:
 # local rules #
 ###############
 
-localrules: link_all, install_sh, install_seak, setup_all, run_deepripe_vep_all, run_ensembl_vep_all, evep_missense_proc_all, splice_ai_filter_and_overlap_with_genotypes_all, splice_ai_vcf_to_tsv_all, filter_variants_all, export_plof_burden_all, export_missense_burden_all, assoc_baseline_scoretest_all, mac_report_all, assoc_spliceai_linw_all, assoc_deepripe_single_localcollapsing_all, pLOF_nsnp_cummac_all
+localrules: link_all, link_genotypes, install_sh, install_seak, setup_all, run_deepripe_vep_all, run_ensembl_vep_all, evep_missense_proc_all, splice_ai_filter_and_overlap_with_genotypes_all, splice_ai_vcf_to_tsv_all, filter_variants_all, export_plof_burden_all, export_missense_burden_all, assoc_baseline_scoretest_all, mac_report_all, assoc_spliceai_linw_all, assoc_deepripe_single_localcollapsing_all, pLOF_nsnp_cummac_all, complete_cases_ancestry, gather_complete_cases
 
 
 ###############
@@ -156,4 +167,5 @@ include: "snake/deepripe.smk"
 include: "snake/evep.smk"
 include: "snake/splice_ai.smk"
 include: "snake/association.smk"
+include: "snake/conditional_tests.smk"
 include: "snake/results_processing.smk"

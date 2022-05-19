@@ -1,6 +1,4 @@
 
-
-
 rule export_results_baseline:
     # export results and calculate genomic inflation
     input:

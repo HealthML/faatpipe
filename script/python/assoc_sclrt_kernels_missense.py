@@ -255,9 +255,9 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
             if G2 is not None:
 
                 # merged (single variable), missense non-weighted
-                G1_burden_mrg = np.maximum(G1_burden_nonweighted, G2)
-                call_score(G1_burden_mrg, 'linb_mrgLOF')
-                call_lrt(G1_burden_mrg, 'linb_mrgLOF')
+                # G1_burden_mrg = np.maximum(G1_burden_nonweighted, G2)
+                # call_score(G1_burden_mrg, 'linb_mrgLOF')
+                # call_lrt(G1_burden_mrg, 'linb_mrgLOF')
                 
                 # merged (single variable)
                 G1_burden_mrg = np.maximum(G2, G1_burden)
@@ -265,9 +265,9 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
                 call_lrt(G1_burden_mrg, 'linwb_mrgLOF')
 
                 # concatenated ( >= 2 variables, non-weighted)
-                G1_nonweighted = np.concatenate([G1_nonweighted, G2], axis=1)
-                call_score(G1_nonweighted, 'lincollapsed_cLOF')
-                call_lrt(G1_nonweighted, 'lincollapsed_cLOF')
+                # G1_nonweighted = np.concatenate([G1_nonweighted, G2], axis=1)
+                # call_score(G1_nonweighted, 'lincollapsed_cLOF')
+                # call_lrt(G1_nonweighted, 'lincollapsed_cLOF')
                 
                 # concatenated ( >= 2 variables)
                 G1 = np.concatenate([G1, G2], axis=1)
@@ -309,7 +309,8 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
 stats = pd.DataFrame.from_dict(stats).set_index('gene')
 
 # these are the kernels 
-kern = ['linb', 'linwb', 'linb_mrgLOF', 'linwb_mrgLOF', 'lincollapsed', 'linwcollapsed', 'lincollapsed_cLOF', 'linwcollapsed_cLOF']
+# kern = ['linb', 'linwb', 'linb_mrgLOF', 'linwb_mrgLOF', 'lincollapsed', 'linwcollapsed', 'lincollapsed_cLOF', 'linwcollapsed_cLOF']
+kern = ['linb', 'linwb', 'linwb_mrgLOF', 'lincollapsed', 'linwcollapsed', 'linwcollapsed_cLOF']
 
 # concatenate and save gene-specific simulations
 # ...complicated nested dict comprehension that ensures we drop empty values etc.

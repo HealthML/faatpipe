@@ -261,6 +261,9 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
             if temp_genotypes is None:
                 raise GotNone
 
+            nanmean = np.nanmean(temp_genotypes, axis=0) 
+            ncarrier = np.nansum(np.nansum(np.where((nanmean / 2 > 0.5), abs(temp_genotypes - 2), temp_genotypes), axis=1) >= 1) # calculated differently here because alleles can be flipped!
+                
             ncarrier = np.nansum(temp_genotypes, axis=0)
             ncarrier = np.minimum(ncarrier, temp_genotypes.shape[0] - ncarrier).astype(int)
 
@@ -358,8 +361,8 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
             call_lrt(G.dot(np.diag(weights, k=0)), 'linw') # performs weighting and joint estimation of effect-sizes 
 
             # sanity checks
-            assert len(vids) == interval['n_snp'], 'Error: number of variants does not match! expected: {}  got: {}'.format(interval['n_snp'], len(vids))
-            assert cummac.sum() == interval['cumMAC'], 'Error: cumMAC does not match! expeced: {}, got: {}'.format(interval['cumMAC'], cummac.sum())
+            # assert len(vids) == interval['n_snp'], 'Error: number of variants does not match! expected: {}  got: {}'.format(interval['n_snp'], len(vids))
+            # assert cummac.sum() == interval['cumMAC'], 'Error: cumMAC does not match! expeced: {}, got: {}'.format(interval['cumMAC'], cummac.sum())
 
             if np.any(keep):
 
