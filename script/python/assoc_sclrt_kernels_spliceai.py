@@ -7,6 +7,7 @@ logging.basicConfig(filename=snakemake.log[0], level=logging.INFO)
 
 import pandas as pd
 import numpy as np
+import gzip
 
 # seak imports
 from seak.data_loaders import intersect_ids, EnsemblVEPLoader, VariantLoaderSnpReader, CovariatesLoaderCSV
@@ -56,6 +57,24 @@ def maf_filter(mac_report):
 
     return mac_report.set_index('SNP').loc[vids]
 
+def sid_filter(vids):
+    
+    if 'sid_include' in snakemake.config:
+        print('limiting to variants present in {}'.format(snakemake.config['sid_include']))
+        
+        infilepath = snakemake.config['sid_include']
+        
+        if infilepath.endswith('gz'):
+            with gzip.open(infilepath,'rt') as infile:
+                sid = np.array([l.rstrip() for l in infile])
+        else:
+            with open(infilepath, 'r') as infile:
+                sid = np.array([l.rstrip() for l in infile])
+    else:
+        return vids
+                
+    return intersect_ids(vids, sid)
+
 
 # genotype path, vep-path:
 assert len(snakemake.params.ids) == len \
@@ -88,6 +107,7 @@ for i, (chromosome, bed, vep_tsv, ensembl_vep_tsv, mac_report, h5_lof, iid_lof, 
     # get set of variants for the chromosome:
     mac_report = maf_filter(mac_report)
     filter_vids = mac_report.index.values
+    filter_vids = sid_filter(filter_vids)
 
     # filter by MAF
     keep = intersect_ids(filter_vids, spliceaidf.index.values)
@@ -156,30 +176,32 @@ for i, (chromosome, bed, vep_tsv, ensembl_vep_tsv, mac_report, h5_lof, iid_lof, 
         vids = V1.index.get_level_values('vid')
         V1 = V1.droplevel(['gene'])
 
+        is_plof = V1[1].values.astype(bool)
+        
         temp_genotypes, temp_vids = plinkloader.genotypes_by_id(vids, return_pos=False)
 
+        ncarrier = np.nansum(np.nansum(temp_genotypes, axis=1) >= 1)
+        ncarrier_notLOF = np.nansum(np.nansum(temp_genotypes[:,~is_plof], axis=1) >= 1)
+        
         temp_genotypes -= np.nanmean(temp_genotypes, axis=0)
         G1 = np.ma.masked_invalid(temp_genotypes).filled(0.)
 
-        ncarrier = np.sum(G1 > 0.5, axis=0)
         cummac = mac_report.loc[vids].Minor
 
         # spliceAI max score
-        weights = V1[0].values.astype(np.float64)
-
-        is_plof = V1[1].values.astype(bool)
+        weights = V1[0].values.astype(float)
 
         # "standardized" positions -> codon start positions
         # pos = V1[0].values.astype(np.int32)
 
-        return G1, vids, weights, ncarrier, cummac, is_plof
+        return G1, vids, weights, ncarrier, ncarrier_notLOF, cummac, is_plof
 
     # set up the protein-LOF loading function
 
     def get_plof(interval):
 
         try:
-            G2 = bloader_lof.genotypes_by_id(interval['name']).astype(np.float)
+            G2 = bloader_lof.genotypes_by_id(interval['name']).astype(float)
         except KeyError:
             G2 = None
 
@@ -209,25 +231,33 @@ for i, (chromosome, bed, vep_tsv, ensembl_vep_tsv, mac_report, h5_lof, iid_lof, 
             sim_dict[name] = sim['res']
 
         # load splice variants
-        G1, vids, weights, ncarrier, cummac, is_plof = get_splice(interval)
+        G1, vids, weights, ncarrier, ncarrier_notLOF, cummac, is_plof = get_splice(interval)
         # keep indicates which variants are NOT "protein LOF" variants, i.e. variants already identified by the ensembl VEP
         keep = ~is_plof
 
-        # do a score burden test (max weighted), this is different than the baseline!
+        # do a score burden test (*non-weighted*)
+        G1_burden_nonweighted = np.max((G1 > 0.5).astype(float), axis=1, keepdims=True)
+        call_score(G1_burden_nonweighted, 'linb')
+        
+        # do a score burden test (max weighted)
         G1_burden = np.max(np.where(G1 > 0.5, np.sqrt(weights), 0.), axis=1, keepdims=True)
         call_score(G1_burden, 'linwb')
 
-        # linear weighted kernel
+        # linear kernel
+        G1_nonweighted = G1
+        call_score(G1_nonweighted, 'lin')
+        
+        # weighted linear kernel
         G1 = G1.dot(np.diag(np.sqrt(weights), k=0))
-
-        # do a score test (local collapsing)
         call_score(G1, 'linw')
 
         # if gene is nominally significant:
         if (pval_dict['pv_score_linwb'] < snakemake.params.sclrt_nominal_significance_cutoff) | (pval_dict['pv_score_linw'] < snakemake.params.sclrt_nominal_significance_cutoff):
 
             # do lrt tests
+            call_lrt(G1_burden_nonweighted, 'linb')
             call_lrt(G1_burden, 'linwb')
+            call_lrt(G1_nonweighted, 'lin')
             call_lrt(G1, 'linw')
 
             # load plof burden
@@ -236,23 +266,31 @@ for i, (chromosome, bed, vep_tsv, ensembl_vep_tsv, mac_report, h5_lof, iid_lof, 
             if G2 is not None:
 
                 if np.any(keep):
+                    
+                    # merged (single variable, non-weighted)
+                    G1_burden_mrg = np.maximum(G2, G1_burden_nonweighted)
+                    call_score(G1_burden_mrg, 'linb_mrgLOF')
+                    call_lrt(G1_burden_mrg, 'linb_mrgLOF')
 
                     # merged (single variable)
                     G1_burden_mrg = np.maximum(G2, G1_burden)
-
                     call_score(G1_burden_mrg, 'linwb_mrgLOF')
                     call_lrt(G1_burden_mrg, 'linwb_mrgLOF')
 
                     # concatenated ( >= 2 variables)
                     # we separate out the ones that are already part of the protein LOF variants!
 
+                    G1_nonweighted = np.concatenate([G1_nonweighted[:,keep], G2], axis=1)
+                    call_score(G1_nonweighted, 'lin_cLOF')
+                    call_lrt(G1_nonweighted, 'lin_cLOF')                    
+                    
                     G1 = np.concatenate([G1[:,keep], G2], axis=1)
                     call_score(G1, 'linw_cLOF')
                     call_lrt(G1, 'linw_cLOF')
                 else:
                     logging.info('All Splice-AI variants for gene {} where already identified by the Ensembl variant effect predictor'.format(interval['name']))
 
-        pval_dict['nCarrier'] = ncarrier.sum()
+        pval_dict['nCarrier'] = ncarrier
         pval_dict['cumMAC'] = cummac.sum()
         pval_dict['n_snp'] = len(vids)
 
@@ -262,7 +300,7 @@ for i, (chromosome, bed, vep_tsv, ensembl_vep_tsv, mac_report, h5_lof, iid_lof, 
         # print(keep)
         # print(len(keep))
         
-        pval_dict['nCarrier_notLOF'] = ncarrier[keep].sum()
+        pval_dict['nCarrier_notLOF'] = ncarrier_notLOF
         pval_dict['cumMAC_notLOF'] = cummac[keep].sum()
 
         # 0.5 is the recommended spliceAI cutoff
@@ -300,7 +338,7 @@ for i, (chromosome, bed, vep_tsv, ensembl_vep_tsv, mac_report, h5_lof, iid_lof, 
 stats = pd.DataFrame.from_dict(stats).set_index('gene')
 
 # these are the kernels
-kern = ['linwb', 'linwb_mrgLOF', 'linw', 'linw_cLOF']
+kern = ['linb', 'linwb', 'linb_mrgLOF', 'linwb_mrgLOF', 'lin', 'linw', 'lin_cLOF', 'linw_cLOF']
 
 # concatenate and save gene-specific simulations
 # ...complicated nested dict comprehension that ensures we drop empty values etc.
@@ -316,7 +354,7 @@ for k in kern:
         (snakemake.params.out_dir_stats + '{}.pkl.gz'.format(k))
 
 # calculate chi2 mixture parameters for each kernel
-params = {k : fit_chi2mixture(np.concatenate(list(simulations_[k].values())), 0.1) for k in simulations_.keys()}
+params = {k : fit_chi2mixture(np.concatenate(list(simulations_[k].values())), qmax=0.1) for k in simulations_.keys()}
 
 pvals = np.empty((stats.shape[0], len(kern)))
 pvals[:, :] = np.nan

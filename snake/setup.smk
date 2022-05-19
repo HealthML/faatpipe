@@ -81,6 +81,41 @@ rule gather_complete_cases:
     script:
         '../script/python/gather_complete_cases.py'
         
+
+rule complete_cases_ancestry:
+    # create ancestry keep-files for plink
+    input:
+        iid_txt = 'data/covariates/complete_cases/covariates.txt',
+        ancestry_tsv = config['ancestry_scoring_file'] if 'ancestry_scoring_file' in config else 'ancestry_scoring_file_is_undefined'
+    output:
+        ancestry_keep = expand('data/ancestry_keep_files/{ancestries}.keep', ancestries=['AFR','AMR','EAS','EUR','SAS'])
+    run:
+        import pandas as pd
+        
+        with open(input['iid_txt'], 'r') as infile:
+            iids = [ l.rstrip() for l in infile ]
+            
+        ancestry = pd.read_csv(input['ancestry_tsv'], sep='\t', dtype={0:str})
+        if 'IID' in ancestry.columns:
+            ancestry.rename(columns={'IID':'iid'}, inplace=True)
+        ancestry.set_index('iid', inplace=True)    
+        
+        # print(ancestry.head())
+        
+        print('{} individuals in ancestry file'.format(len(ancestry)))
+        print('{} individuals in iid-file. Subsetting to those individuals.'.format(len(iids)))
+        
+        ancestry = ancestry.loc[iids]
+
+        for a in ancestry.columns:
+            outfile = 'data/ancestry_keep_files/{}.keep'.format(a)
+            
+            with open(outfile, 'w') as out:
+                for idx in ancestry[ancestry[a] > 0.5].index.values:
+                    out.write('{}\t{}\n'.format(idx, idx))
+            
+            print('written {} iids to {}'.format((ancestry[a] > 0.5).sum(), outfile))
+            
     
 rule mac_report:
     # filter by HWE and
@@ -117,10 +152,52 @@ rule mac_report_all:
     input:
         expand(rules.mac_report.output, id = plinkfiles.getIds())
         
+        
+rule mac_report_ancestry:
+    # filter by HWE and
+    # create minor allele count report for specific ancestry and chromosome
+    input:
+        iid_txt = 'data/ancestry_keep_files/{ancestry}.keep',
+        plink = 'bin/plink',
+        bed = rules.link_genotypes.output.bed
+    output:
+        frq_tsv = temp('work/mac_report/all/{ancestry}/{id}.frq.counts.gz'),
+        tsv = 'work/mac_report/all/{ancestry}/{id}.tsv.gz',
+        plink_log = 'work/mac_report/all/{ancestry}/{id}.log'
+    params:
+        in_prefix = lambda wc, input: input.bed[:-4],
+        out_prefix = 'work/mac_report/all/{ancestry}/{id}'
+    log:
+        'logs/mac_report_ancestry/{ancestry}/{id}.log'
+    conda:
+        '../env/genomics.yml'
+    threads:
+        1
+    resources:
+        mem_mb=8000,
+        time="1:00:00"
+    shell:
+        'python script/python/mac_report.py '
+        '--iid {input.iid_txt} '
+        '--bed {params.in_prefix} '
+        '-o {params.out_prefix} '
+        '--plink_path {input.plink} '
+        '--log {log} '
+        '--threads {threads} '
+        '--mem_mb {resources.mem_mb} '
+        '&> {log} '
+        
+
+rule mac_report_ancestry_all:
+    # create minor allele count reports for all ancestries and all chromosomes
+    input:
+        expand(rules.mac_report_ancestry.output, id = plinkfiles.getIds(), ancestry=['AFR','AMR','EAS','EUR','SAS'])
+
+        
 rule filter_variants:
     # apply missingness filters and
     # high-confidence region filter for phenotype-complete cases
-    # returns the filtered variant ids, their MAF (calculated on the covariate-complete cases) and their MAC (calculated on the phenotype-complete cases)
+    # returns the filtered variant ids, their MAF (calculated on the covariate-complete cases) and their MAC (calculated on the *phenotype*-complete cases)
     # the MAF filter is applied while performing the association tests, NOT here.
     input:
         mac_tsv = rules.mac_report.output.tsv,

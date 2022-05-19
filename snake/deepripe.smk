@@ -7,9 +7,9 @@ rule split_vcf_strand:
     # We split the VCF into variants overlapping genes on the plus/minus strand
     # produces tabix-indexed vcf files corresponding to variants on the separate strands that overlap protein-coding genes
     input:
-        pc_genes_bed_plus = rules.get_protein_coding_genes.output.pc_genes_bed_plus,
-        pc_genes_bed_minus = rules.get_protein_coding_genes.output.pc_genes_bed_minus,
-        vcf = rules.bim_to_vcf.output.vcf
+        pc_genes_bed_plus = ancient(rules.get_protein_coding_genes.output.pc_genes_bed_plus),
+        pc_genes_bed_minus = ancient(rules.get_protein_coding_genes.output.pc_genes_bed_minus),
+        vcf = ancient(rules.bim_to_vcf.output.vcf)
     output:
         vcf_plus = 'work/variant_effect_prediction/vcf/by_strand/{id}_plus.recode.vcf.gz',
         vcf_minus = 'work/variant_effect_prediction/vcf/by_strand/{id}_minus.recode.vcf.gz'
@@ -57,7 +57,7 @@ rule run_deepripe_vep:
     # runs the DeepRiPe variant effect prediction for all chromosomes + strands independently
     # this rule requires a GPU
     input:
-        vcf = 'work/variant_effect_prediction/vcf/by_strand/{id}_{strand}.recode.vcf.gz',
+        vcf = ancient('work/variant_effect_prediction/vcf/by_strand/{id}_{strand}.recode.vcf.gz'),
         ref_fa = config['reference_fa']
     output:
         h5 = 'work/variant_effect_prediction/deepripe/{id}/{strand}_scores.h5',

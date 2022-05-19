@@ -15,14 +15,14 @@ import gzip
 from seak.data_loaders import intersect_ids, EnsemblVEPLoader, VariantLoaderSnpReader, CovariatesLoaderCSV
 from seak.kernels import LocalCollapsing
 from seak.scoretest import ScoretestNoK
-from seak.lrt import LRTnoK
-
-import gzip
+from seak.lrt import LRTnoK, pv_chi2mixture, fit_chi2mixture
 
 from pysnptools.snpreader import Bed
 
 from util.association import BurdenLoaderHDF5
 from util import Timer
+
+import functools
 
 
 class GotNone(Exception):
@@ -62,6 +62,7 @@ def maf_filter(mac_report):
 
     return mac_report.set_index('SNP').loc[vids]
 
+
 def sid_filter(vids):
     
     if 'sid_include' in snakemake.config:
@@ -80,6 +81,8 @@ def sid_filter(vids):
                 
     return intersect_ids(vids, sid)
 
+
+
 def get_regions():
     # load the results, keep those below a certain p-value
     results = pd.read_csv(snakemake.input.results_tsv, sep='\t')
@@ -88,14 +91,27 @@ def get_regions():
     if isinstance(kern, str):
         kern = [kern]
 
-    pvcols_score = ['pv_score_' + k for k in kern ]
+    pvcols_score = ['pv_score_' + k for k in kern]
     pvcols_lrt = ['pv_lrt_' + k for k in kern]
     statcols = ['lrtstat_' + k for k in kern]
     results = results[['gene', 'n_snp', 'cumMAC', 'nCarrier'] + statcols + pvcols_score + pvcols_lrt]
-
-    # get genes below threshold
-    genes = [results.gene[results[k] < 1e-7].values for k in pvcols_score + pvcols_lrt ]
-    genes = np.unique(np.concatenate(genes))
+    
+    if snakemake.params['random']:
+        # get genes below threshold
+        genes = [results.gene[results[k] < snakemake.params.significance_cutoff].values for k in pvcols_score + pvcols_lrt]
+        genes = np.unique(np.concatenate(genes))
+        
+        if len(genes) > 0:
+            # make sure we don't pick ones that are significant
+            results = results[~results.gene.isin(genes)]
+                    
+        results = results[results.cumMAC >= 5] # make sure we dont sample noise
+        results = results.sample(100, replace=False) # sample 100 genes at random
+        genes = results['gene'].values.flatten()
+    else:
+        # get genes below threshold
+        genes = [results.gene[results[k] < snakemake.params.significance_cutoff].values for k in pvcols_score + pvcols_lrt]
+        genes = np.unique(np.concatenate(genes))
 
     if len(genes) == 0:
         return None
@@ -109,28 +125,39 @@ def get_regions():
     regions = regions.join(results.set_index('gene'), how='left').reset_index()
     return regions
 
-
 # genotype path, vep-path:
 assert len(snakemake.params.ids) == len(snakemake.input.bed), 'Error: length of chromosome IDs does not match length of genotype files'
 geno_vep = zip(snakemake.params.ids, snakemake.input.bed, snakemake.input.vep_tsv, snakemake.input.mac_report, snakemake.input.h5_lof, snakemake.input.iid_lof, snakemake.input.gid_lof)
 
-
 regions_all = get_regions()
 if regions_all is None:
     logging.info('No genes pass significance threshold, exiting.')
+    import gzip
+    with gzip.open(snakemake.output.results_tsv, 'wt') as outfile:
+        outfile.write('# no hits below specified threshold ({}) for phenotype {}. \n'.format(snakemake.params.significance_cutoff, snakemake.params.phenotype))
     sys.exit(0)
 
 logging.info('About to evaluate variants in {} genes'.format(len(regions_all)))
 
+# storing all results here
+results = []
+
 i_gene = 0
-# where we store the results
-stats = []
+i_chrom = 0
+
 # enter the chromosome loop:
 timer = Timer()
 for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enumerate(geno_vep):
 
     if chromosome.replace('chr','') not in regions_all.chrom.unique():
         continue
+
+    if snakemake.params.debug:
+        # process only two chromosomes if debugging...
+        if i_chrom > 2:
+            break
+
+    timer.reset()
 
     # set up the ensembl vep loader for the chromosome
     ensemblvepdf = pd.read_csv(vep_tsv,
@@ -142,7 +169,6 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
     mac_report = maf_filter(mac_report)
     filter_vids = mac_report.index.values
     filter_vids = sid_filter(filter_vids)
-
 
     # filter by MAF
     keep = intersect_ids(filter_vids, ensemblvepdf.index.values)
@@ -163,7 +189,7 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
     regions.set_index('gene', inplace=True)
     genes = intersect_ids(np.unique(regions.index.values), np.unique(eveploader.pos_df.gene))
     regions = regions.loc[genes].reset_index()
-    regions = regions.sort_values(['chrom' ,'start' ,'end'])
+    regions = regions.sort_values(['chrom', 'start', 'end'])
 
     # set up the variant loader (missense variants) for the chromosome
     plinkloader = VariantLoaderSnpReader(Bed(bed, count_A1=True, num_threads=4))
@@ -223,165 +249,90 @@ for i, (chromosome, bed, vep_tsv, mac_report, h5_lof, iid_lof, gid_lof) in enume
 
         return G2
 
+
     # set up the test-function for a single gene
     def test_gene(interval, seed):
 
         pval_dict = {}
         pval_dict['gene'] = interval['name']
-        called = []
+
+        out_dir = os.path.join(snakemake.params.out_dir_stats, interval['name'])
+        os.makedirs(out_dir, exist_ok=True)
 
         def pv_score(GV):
+            # wraps score-test
             pv = null_model_score.pv_alt_model(GV)
             if pv < 0.:
                 pv = null_model_score.pv_alt_model(GV, method='saddle')
             return pv
 
-        def call_score(GV, name, vids=None):
-            if name not in pval_dict:
-                pval_dict[name] = {}
-                called.append(name)
-            pval_dict[name] = {}
-            # single-marker p-values
-            pval_dict[name]['pv_score'] = np.array([pv_score(GV[:,i,np.newaxis]) for i in range(GV.shape[1])])
+        def call_test(GV, name):
+            pval_dict['pv_score_' + name] = pv_score(GV)
+            altmodel = null_model_lrt.altmodel(GV)
+            res = null_model_lrt.pv_sim_chi2(250000, simzero=False, seed=seed)
+            pval_dict['pv_lrt_' + name] = res['pv']
+            pval_dict['lrtstat_' + name ] = altmodel['stat']
+            if 'h2' in altmodel:
+                pval_dict['h2_' + name ] = altmodel['h2']
 
-            # single-marker coefficients 
-            beta = [ null_model_score.coef(GV[:,i,np.newaxis]) for i in range(GV.shape[1]) ]
-            pval_dict[name]['beta'] = np.array([x['beta'][0,0] for x in beta]) 
-            pval_dict[name]['betaSd'] = np.array([np.sqrt(x['var_beta'][0,0]) for x in beta])
-            if vids is not None:
-                pval_dict[name]['vid'] = vids
-
-
-        def call_lrt(GV, name, vids=None):
-            if name not in pval_dict:
-                pval_dict[name] = {}
-                called.append(name)
-            # get gene parameters, test statistics and and single-marker regression weights
-            lik = null_model_lrt.altmodel(GV)
-            pval_dict[name]['nLL'] = lik['nLL']
-            pval_dict[name]['sigma2'] = lik['sigma2']
-            pval_dict[name]['lrtstat'] = lik['stat']
-            pval_dict[name]['h2'] = lik['h2']
-            logdelta = null_model_lrt.model1.find_log_delta(GV.shape[1])
-            pval_dict[name]['log_delta'] = logdelta['log_delta']
-            pval_dict[name]['coef_random'] = null_model_lrt.model1.getPosteriorWeights(logdelta['beta'], logdelta=logdelta['log_delta'])
-            if vids is not None:
-                pval_dict[name]['vid'] = vids
-
+            if res['pv'] != 1.:
+                for stat in ['scale', 'dof', 'mixture', 'imax']:
+                    pval_dict[stat + '_' + name] = res[stat]
+                if len(res['res'] > 0):
+                    pd.DataFrame({interval['name']: res['res']}).to_pickle(out_dir + '/{}.pkl.gz'.format(name))
 
         # load missense variants
         G1, vids, weights, ncarrier, cummac, pos, ref, alt, cosine_similarity = get_missense(interval)
-
-        # these are common to all kernels
-        pval_dict['vid'] = vids
-        pval_dict['weights'] = weights
-        pval_dict['MAC'] = cummac
-        pval_dict['nCarrier'] = ncarrier
-        pval_dict['pos'] = pos
-        pval_dict['ref'] = ref
-        pval_dict['alt'] = alt
-        pval_dict['cosine_similarity'] = cosine_similarity
-
-        # single-variant p-values:
-        call_score(G1, 'variant_pvals') # score-pvalues and coeficients estimated independently
-        call_lrt(G1.dot(np.diag(np.sqrt(weights), k=0)), 'variant_pvals') # coeficients after weight adjustment (estimated *jointly*)
 
         # sanity checks
         # assert len(vids) == interval['n_snp'], 'Error: number of variants does not match! expected: {}  got: {}'.format(interval['n_snp'], len(vids))
         # assert cummac.sum() == interval['cumMAC'], 'Error: cumMAC does not match! expeced: {}, got: {}'.format(interval['cumMAC'], cummac.sum())
 
-        # do a score burden test (max weighted), this is different than the baseline!
+        # perform test using gene-specific distribution, gbvc
         G1_burden = np.max(np.where(G1 > 0.5, np.sqrt(weights), 0.), axis=1, keepdims=True)
-
-        # burden
-        call_score(G1_burden, 'linwb')
-        call_lrt(G1_burden, 'linwb')
+        call_test(G1_burden, 'linwb')
 
         # perform local collapsing with weights
         if G1.shape[1] > 1:
-            G1, clusters = collapser.collapse(G1, pos, np.sqrt(weights)) # will lead to a crash when there are negative weights...
+            G1, clusters = collapser.collapse(G1, pos, np.sqrt(weights))
         else:
             G1 = G1.dot(np.diag(np.sqrt(weights), k=0))
-            clusters = np.array([0])
 
-        pval_dict['cluster_id'] = clusters
-
-        # get the single-cluster p-values + stats
-        call_score(G1, 'linwcollapsed')
-        call_lrt(G1, 'linwcollapsed')
-        pval_dict['linwcollapsed']['cluster_id'] = sorted(set(clusters))
+        # perform test using gene-specific distribution, kernel-based
+        call_test(G1, 'linwcollapsed')
 
         # load plof burden
         G2 = get_plof(interval)
 
         if G2 is not None:
 
-            call_score(G2, 'LOF')
-            call_lrt(G2, 'LOF')
-
             # merged (single variable)
             G1_burden_mrg = np.maximum(G2, G1_burden)
-            call_score(G1_burden_mrg, 'linwb_mrgLOF')
-            call_lrt(G1_burden_mrg, 'linwb_mrgLOF')
+            call_test(G1_burden_mrg, 'linwb_mrgLOF')
 
             # concatenated
-            call_score(np.concatenate([G1, G2], axis=1), 'linwcollapsed_cLOF')
-            call_lrt(np.concatenate([G1, G2], axis=1), 'linwcollapsed_cLOF')
-            pval_dict['linwcollapsed_cLOF']['cluster_id'] = sorted(set(clusters)) + [-1] # -1 indicates the LOF cluster
+            call_test(np.concatenate([G1, G2], axis=1), 'linwcollapsed_cLOF')
 
-        return pval_dict, called
+        return pval_dict
 
     logging.info('loaders for chromosome {} initialized in {:.1f} seconds.'.format(chromosome, timer.check()))
     # run tests for all genes on the chromosome
+
     for _, region in regions.iterrows():
 
         try:
-            gene_stats, called = test_gene(region, i_gene)
+            results.append(test_gene(region, i_gene)) # i_gene is used as the random seed to make things reproducible
         except GotNone:
             continue
 
-
-        # build the single-variant datafame
-        single_var_columns = ['gene','vid','weights','MAC','nCarrier','pos','ref','alt','cosine_similarity','cluster_id']
-        sv_df = pd.DataFrame.from_dict({k: gene_stats[k] for k in single_var_columns})
-
-        sv_df['pv_score'] = gene_stats['variant_pvals']['pv_score'] # single-variant p-values estimated independently
-        sv_df['coef_random'] = gene_stats['variant_pvals']['coef_random']  # single-variant coefficients estimated jointly after weighting
-        sv_df['beta'] = gene_stats['variant_pvals']['beta'] # single-variant coeffcients estimated independently *without* weighting
-        sv_df['betaSd'] = gene_stats['variant_pvals']['betaSd'] # standard errors for the single-variant coefficients estimated independently *without* weighting
-        sv_df['pheno'] = snakemake.params.phenotype
-
-        out_dir = os.path.join(snakemake.params.out_dir_stats, region['name'])
-        os.makedirs(out_dir, exist_ok=True)
-
-        sv_df.to_csv(out_dir + '/variants.tsv.gz', sep='\t', index=False)
-
-
-        for k in called:
-
-            if k == 'variant_pvals':
-                continue
-
-            results_dict = gene_stats[k]
-                
-            df_cols = ['cluster_id','pv_score', 'coef_random', 'beta', 'betaSd', 'vid'] # parts of the dict that have lenght > 1
-            
-            df = pd.DataFrame.from_dict(data={k: results_dict[k] for k in df_cols if k in results_dict})
-            df['gene'] = gene_stats['gene']
-            df['pheno'] = snakemake.params.phenotype
-            df.to_csv(out_dir + '/{}.tsv.gz'.format(k), sep='\t', index=False)
-            
-            #  other cols ['nLL', 'sigma2', 'lrtstat', 'h2', 'log_delta']
-            other_cols = {k: v for k, v in results_dict.items() if k not in df_cols }
-            other_cols['gene'] = gene_stats['gene']
-            other_cols['pheno'] = snakemake.params.phenotype
-            
-            pickle.dump(other_cols, open(out_dir + '/{}_stats.pkl'.format(k), 'wb'))
-            
-                            
-
         i_gene += 1
         logging.info('tested {} genes...'.format(i_gene))
-        
+
+    i_chrom += 1
     timer.reset()
+
+# export the results in a single table
+results = pd.DataFrame(results)
+results['pheno'] = snakemake.params.phenotype
+results.to_csv(snakemake.output.results_tsv, sep='\t', index=False)
 

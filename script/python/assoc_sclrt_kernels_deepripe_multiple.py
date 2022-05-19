@@ -56,6 +56,24 @@ def maf_filter(mac_report):
 
     return mac_report.set_index('SNP').loc[vids]
 
+def sid_filter(vids):
+    
+    if 'sid_include' in snakemake.config:
+        print('limiting to variants present in {}'.format(snakemake.config['sid_include']))
+        
+        infilepath = snakemake.config['sid_include']
+        
+        if infilepath.endswith('gz'):
+            with gzip.open(infilepath,'rt') as infile:
+                sid = np.array([l.rstrip() for l in infile])
+        else:
+            with open(infilepath, 'r') as infile:
+                sid = np.array([l.rstrip() for l in infile])
+    else:
+        return vids
+                
+    return intersect_ids(vids, sid)
+
 
 def vep_filter(h5_rbp, bed_rbp):
     # returns variant ids for variants that pass filtering threshold and mask for the hdf5loader
@@ -167,6 +185,7 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
     # get variants that pass MAF threshold:
     mac_report = maf_filter(mac_report)
     filter_vids = mac_report.index.values
+    filter_vids = sid_filter(filter_vids)
 
     # function to identify protein LOF variants
     is_plof = get_plof_id_func(vep_tsv)
@@ -206,11 +225,11 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
             if temp_genotypes is None:
                 raise GotNone
 
-            ncarrier = np.nansum(temp_genotypes, axis=0)
-            ncarrier = np.minimum(ncarrier, temp_genotypes.shape[0] - ncarrier).astype(int)
+            nanmean = np.nanmean(temp_genotypes, axis=0) 
+            ncarrier = np.nansum(np.where((nanmean / 2 > 0.5), abs(temp_genotypes - 2), temp_genotypes) > 0, axis=0)# calculated differently here because alleles can be flipped!
 
-            temp_genotypes -= np.nanmean(temp_genotypes, axis=0)
-            G1 = np.ma.masked_invalid(temp_genotypes).filled(0.)
+            G1 = temp_genotypes - nanmean
+            G1 = np.ma.masked_invalid(G1).filled(0.)
 
             # deepripe variant effect predictions (single RBP)
             V1 = veploader.anno_by_id(temp_vids)
@@ -222,7 +241,7 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
 
             cummac = mac_report.loc[temp_vids].Minor
 
-            return G1, temp_vids, weights, S, ncarrier, cummac, pos
+            return G1, temp_vids, weights, S, ncarrier, cummac, pos, temp_genotypes, nanmean
 
 
         # set up the test-function for a single gene
@@ -250,9 +269,12 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
                 pval_dict['alteqnull_' + name] = float(lik['alteqnull'])
                 sim_dict[name] = sim['res']
 
-            # load missense variants
-            G, vids, weights, S, ncarrier, cummac, pos = get_rbp(interval)
+            # load rbp variants
+            G, vids, weights, S, ncarrier, cummac, pos, raw_genotypes, nanmean = get_rbp(interval)
             keep = ~is_plof(vids)
+            
+            # had to pass along raw genotypes and nanmean to calculate this here:
+            ncarrier_notLOF = np.nansum(np.nansum(np.where((nanmean[keep] / 2 > 0.5), abs(raw_genotypes[:,keep] - 2), raw_genotypes[:,keep]), axis=1) >= 1)
 
             # cholesky
             if G.shape[1] > 1:
@@ -291,11 +313,13 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
                     call_lrt(GL, 'lincholesky_notLOF')
                     call_lrt(GWL, 'linwcholesky_notLOF')
 
-            pval_dict['nCarrier'] = ncarrier.sum()
+            pval_dict['nCarrier'] = ncarrier
             pval_dict['cumMAC'] = cummac.sum()
             pval_dict['n_snp'] = len(vids)
 
             pval_dict['n_snp_notLOF'] = keep.sum()
+            pval_dict['cumMAC_notLOF'] = cummac[keep].sum()
+            pval_dict['nCarrier_notLOF'] = ncarrier_notLOF
 
             pval_dict['flag1'] = flag1
             pval_dict['flag2'] = flag2
@@ -346,7 +370,7 @@ for k in kern:
     pd.DataFrame.from_dict(simulations_[k], orient='index').to_pickle(snakemake.params.out_dir_stats + '{}.pkl.gz'.format(k))
 
 # calculate chi2 mixture parameters for each kernel
-params = {k: fit_chi2mixture(np.concatenate(list(simulations_[k].values())), 0.1) for k in simulations_.keys()}
+params = {k: fit_chi2mixture(np.concatenate(list(simulations_[k].values())), qmax=0.1) for k in simulations_.keys()}
 
 pvals = np.empty((stats.shape[0], len(kern)))
 pvals[:, :] = np.nan

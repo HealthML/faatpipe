@@ -41,7 +41,11 @@ covariatesloader = CovariatesLoaderCSV(snakemake.params.phenotype,
 Y, X = covariatesloader.get_one_hot_covariates_and_phenotype('noK')
 
 null_model_score = ScoretestNoK(Y, X)
-null_model_lrt = LRTnoK(X, Y)
+
+# conditional analysis:
+# we need to fit gene-specific null models for the LRT!
+# null_model_lrt = LRTnoK(X, Y)
+null_model_lrt = None
 
 
 # set up function to filter variants:
@@ -75,7 +79,6 @@ def sid_filter(vids):
         return vids
                 
     return intersect_ids(vids, sid)
-    
 
 
 def vep_filter(h5_rbp, bed_rbp):
@@ -158,32 +161,50 @@ def get_weights_from_vep(V):
 
 
 def get_regions():
-    # load the results, keep those below a certain p-value
+    # load the results, keep those below a certain p-value + present in conditional analysis list 
     results = pd.read_csv(snakemake.input.results_tsv, sep='\t', comment='#')
 
     kern = snakemake.params.kernels
     if isinstance(kern, str):
         kern = [kern]
 
-    pvcols_score = ['pv_score_' + k for k in kern ]
+    pvcols_score = ['pv_score_' + k for k in kern]
     pvcols_lrt = ['pv_lrt_' + k for k in kern]
-    statcols = ['lrtstat_' + k for k in kern]
+    statcols = ['lrtstat_' + k for k in kern]    
     results = results[['gene', 'n_snp', 'cumMAC', 'nCarrier'] + statcols + pvcols_score + pvcols_lrt]
-
-    # get genes below threshold
-    genes = [results.gene[results[k] < 1e-7].values for k in pvcols_score + pvcols_lrt ]
-    genes = np.unique(np.concatenate(genes))
-
-    if len(genes) == 0:
-        return None
-
+    
+    results.rename(columns={'gene':'name'}, inplace=True)
+    
     # set up the regions to loop over for the chromosome
     regions = pd.read_csv(snakemake.input.regions_bed, sep='\t', header=None, usecols=[0 ,1 ,2 ,3, 5], dtype={0 :str, 1: np.int32, 2 :np.int32, 3 :str, 5:str})
     regions.columns = ['chrom', 'start', 'end', 'name', 'strand']
     regions['strand'] = regions.strand.map({'+': 'plus', '-': 'minus'})
-    regions = regions.set_index('name').loc[genes]
-
-    regions = regions.join(results.set_index('gene'), how='left').reset_index()
+    
+    # conditional analysis, keep only genes that are provided in conditional_list
+    regions['gene_name'] = regions['name'].str.split('_', expand=True)[1]
+    
+    _conditional_list = pd.read_csv(snakemake.input.conditional_list, sep='\t', header=0, usecols=['gene_name','pheno'])
+    _conditional_list = _conditional_list[(_conditional_list.pheno == snakemake.wildcards['pheno']) | (_conditional_list.pheno == snakemake.params.phenotype) ]
+    _conditional_list = _conditional_list.drop_duplicates() 
+    
+    if len(_conditional_list) == 0:
+        logging.info('No genes pass significance threshold for phenotype {}, exiting.'.format(snakemake.params.phenotype))
+        with gzip.open(snakemake.output.results_tsv, 'wt') as outfile:
+            outfile.write('# no significant hits for phenotype {}. \n'.format(snakemake.params.phenotype))
+        sys.exit(0)
+    else:
+        regions = regions.merge(_conditional_list, how='right')
+        
+    regions = regions.merge(results, how='left', on=['name'], validate='one_to_one')
+    
+    sig_genes = [results.name[results[k] < snakemake.params.significance_cutoff].values for k in pvcols_score + pvcols_lrt]
+    sig_genes = np.unique(np.concatenate(sig_genes))
+    
+    if len(sig_genes) == 0:
+        return None
+    
+    regions = regions.loc[regions.name.isin(sig_genes)]
+        
     return regions
 
 
@@ -197,16 +218,32 @@ geno_vep = zip(snakemake.params.ids, snakemake.input.bed, snakemake.input.mac_re
 regions_all = get_regions()
 if regions_all is None:
     logging.info('No genes pass significance threshold, exiting.')
+    with gzip.open(snakemake.output.results_tsv, 'wt') as outfile:
+        outfile.write('# no hits below specified threshold ({}) for phenotype {}. \n'.format(snakemake.params.significance_cutoff, snakemake.params.phenotype))
     sys.exit(0)
 
-# where we store the results
-stats = []
-i_gene = 0
 
 # dict with paths to input files
 vep_h5 = {chrom: {'plus': p, 'minus': m} for chrom, (p, m) in zip(snakemake.params.ids, zip(snakemake.input.h5_rbp_plus, snakemake.input.h5_rbp_minus))}
 vep_bed = {chrom: {'plus': p, 'minus': m} for chrom, (p, m) in zip(snakemake.params.ids, zip(snakemake.input.bed_rbp_plus, snakemake.input.bed_rbp_minus))}
 
+# storing all results here
+results = []
+
+i_gene = 0
+i_chrom = 0
+
+# conditional analysis:
+# these genotypes will be used for the conditional analysis
+geno_cond = VariantLoaderSnpReader(Bed(snakemake.input.conditional_geno, count_A1=True, num_threads=1))
+geno_cond.update_individuals(covariatesloader.get_iids())
+
+# this file contains the mapping of associations to SNPs to condition on
+conditional_list = pd.read_csv(snakemake.input.conditional_list, sep='\t', header=0)
+conditional_list = conditional_list[(conditional_list.pheno == snakemake.params['phenotype']) | (conditional_list.pheno == snakemake.wildcards['pheno']) ].drop_duplicates()
+
+geno_cond.update_variants(intersect_ids(conditional_list.snp_rsid, geno_cond.get_vids()))
+logging.info('considering {} variants as covariates for conditional tests.'.format(len(geno_cond.get_vids())))
 
 # enter the chromosome loop:
 timer = Timer()
@@ -214,6 +251,13 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
 
     if chromosome.replace('chr','') not in regions_all.chrom.unique():
         continue
+
+    if snakemake.params.debug:
+        # process only two chromosomes if debugging...
+        if i_chrom > 2:
+            break
+
+    timer.reset()
 
     # get variants that pass MAF threshold:
     mac_report = maf_filter(mac_report)
@@ -262,10 +306,7 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
                 raise GotNone
 
             nanmean = np.nanmean(temp_genotypes, axis=0) 
-            ncarrier = np.nansum(np.nansum(np.where((nanmean / 2 > 0.5), abs(temp_genotypes - 2), temp_genotypes), axis=1) >= 1) # calculated differently here because alleles can be flipped!
-                
-            ncarrier = np.nansum(temp_genotypes, axis=0)
-            ncarrier = np.minimum(ncarrier, temp_genotypes.shape[0] - ncarrier).astype(int)
+            ncarrier = np.nansum(np.where((nanmean / 2 > 0.5), abs(temp_genotypes - 2), temp_genotypes) > 0, axis=0)# calculated differently here because alleles can be flipped!
 
             temp_genotypes -= np.nanmean(temp_genotypes, axis=0)
             G1 = np.ma.masked_invalid(temp_genotypes).filled(0.)
@@ -283,7 +324,22 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
             V1 = pd.DataFrame(V1, columns=labels)[sorted(labels)]
 
             return G1, temp_vids, weights, S, ncarrier, cummac, pos, V1
+        
+        
+        # conditional analysis
+        # set up the function to load the variants to condition on
+    
+        def get_conditional(interval):
+        
+            cond_snps_vid = conditional_list.loc[ conditional_list.gene_name == interval['gene_name'], 'snp_rsid' ].unique().tolist()
+        
+            temp_genotypes, temp_vids = geno_cond.genotypes_by_id(cond_snps_vid, return_pos=False)
+            temp_genotypes -= np.nanmean(temp_genotypes, axis=0)
+        
+            cond_snps = np.ma.masked_invalid(temp_genotypes).filled(0.)
 
+            return cond_snps, temp_vids
+        
 
         # set up the test-function for a single gene
         def test_gene(interval, seed):
@@ -292,148 +348,94 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
 
             pval_dict = {}
             pval_dict['gene'] = interval['name']
-            called = []
 
-            def pv_score(GV):
-                pv = null_model_score.pv_alt_model(GV)
+            out_dir = os.path.join(snakemake.params.out_dir_stats, interval['name'])
+            os.makedirs(out_dir, exist_ok=True)
+            
+            # conditional analysis:
+            # get the snps to condition on, and include them in the null model for the LRT
+            cond_snps, cond_snps_vid = get_conditional(interval)
+            null_model_lrt = LRTnoK(np.concatenate([X, cond_snps], axis=1), Y)
+
+            # conditional analysis:
+            # the score-test takes a second argument (G2) that allows conditioning on a second set of variants...
+            def pv_score(GV, G2=cond_snps):
+                # wraps score-test
+                pv = null_model_score.pv_alt_model(GV, G2)
                 if pv < 0.:
-                    pv = null_model_score.pv_alt_model(GV, method='saddle')
+                    pv = null_model_score.pv_alt_model(GV, G2, method='saddle')
                 return pv
 
-            def call_score(GV, name, vids=None):
-                if name not in pval_dict:
-                    pval_dict[name] = {}
-                    called.append(name)
-                pval_dict[name] = {}
-                # single-marker p-values
-                pval_dict[name]['pv_score'] = np.array([pv_score(GV[:, i, np.newaxis]) for i in range(GV.shape[1])])
-                
-                # single-marker coefficients
-                beta = [ null_model_score.coef(GV[:,i,np.newaxis]) for i in range(GV.shape[1]) ]
-                pval_dict[name]['beta'] = np.array([x['beta'][0,0] for x in beta]) 
-                pval_dict[name]['betaSd'] = np.array([np.sqrt(x['var_beta'][0,0]) for x in beta])
-                if vids is not None:
-                    pval_dict[name]['vid'] = vids
+            def call_test(GV, name):
+                pval_dict['pv_score_' + name] = pv_score(GV)
+                altmodel = null_model_lrt.altmodel(GV)
+                res = null_model_lrt.pv_sim_chi2(250000, simzero=False, seed=seed)
+                pval_dict['pv_lrt_' + name] = res['pv']
+                pval_dict['lrtstat_' + name] = altmodel['stat']
+                if 'h2' in altmodel:
+                    pval_dict['h2_' + name] = altmodel['h2']
 
-            def call_lrt(GV, name, vids=None):
-                if name not in pval_dict:
-                    pval_dict[name] = {}
-                    called.append(name)
-                # get gene parameters, test statistics and and single-marker regression weights
-                lik = null_model_lrt.altmodel(GV)
-                pval_dict[name]['nLL'] = lik['nLL']
-                pval_dict[name]['sigma2'] = lik['sigma2']
-                pval_dict[name]['lrtstat'] = lik['stat']
-                pval_dict[name]['h2'] = lik['h2']
-                logdelta = null_model_lrt.model1.find_log_delta(GV.shape[1])
-                pval_dict[name]['log_delta'] = logdelta['log_delta']
-                pval_dict[name]['coef_random'] = null_model_lrt.model1.getPosteriorWeights(logdelta['beta'], logdelta=logdelta['log_delta'])
-                if vids is not None:
-                    pval_dict[name]['vid'] = vids
+                if res['pv'] != 1.:
+                    for stat in ['scale', 'dof', 'mixture', 'imax']:
+                        pval_dict[stat + '_' + name] = res[stat]
+                    if len(res['res'] > 0):
+                        pd.DataFrame({interval['name']: res['res']}).to_pickle(out_dir + '/{}.pkl.gz'.format(name))
 
             # load rbp variants
             G, vids, weights, S, ncarrier, cummac, pos, V = get_rbp(interval)
             keep = ~is_plof(vids)
 
-            # these are common to all kernels
-            pval_dict['vid'] = vids
-            pval_dict['weights'] = weights ** 2 # get_weights_from_vep returns the square root!
-            pval_dict['MAC'] = cummac
-            pval_dict['nCarrier'] = ncarrier
-            pval_dict['not_LOF'] = keep
-            for col in V.columns:
-                pval_dict[col] = V[col].values.astype(np.float32)
+            # cholesky
+            if G.shape[1] > 1:
+                L, flag1 = get_cholesky(S)
+            else:
+                L, flag1 = np.eye(G.shape[1]), -1
 
-            # # cholesky
-            # if G.shape[1] > 1:
-            #     L, flag1 = get_cholesky(S)
-            # else:
-            #     L, flag1 = np.eye(G.shape[1]), -1
-            #
-            # # do a score test (cholesky, and weighted cholesky)
-            # GL = G.dot(L)
-            # call_score(GL, 'lincholesky')
-            # GWL = G.dot(np.diag(weights, k=0)).dot(L)
-            # call_score(GWL, 'linwcholesky')
-
-            # single-variant p-values:
-            call_score(G, 'linw', vids=vids) # get's the single-variant p-values and effect-sizes -> no weighting!
-            call_lrt(G.dot(np.diag(weights, k=0)), 'linw') # performs weighting and joint estimation of effect-sizes 
+            # do a score test (cholesky, and weighted cholesky)
+            GWL = G.dot(np.diag(weights, k=0)).dot(L)
+            call_test(GWL, 'linwcholesky')
 
             # sanity checks
-            # assert len(vids) == interval['n_snp'], 'Error: number of variants does not match! expected: {}  got: {}'.format(interval['n_snp'], len(vids))
-            # assert cummac.sum() == interval['cumMAC'], 'Error: cumMAC does not match! expeced: {}, got: {}'.format(interval['cumMAC'], cummac.sum())
+            assert len(vids) == interval['n_snp'], 'Error: number of variants does not match! expected: {}  got: {}'.format(interval['n_snp'], len(vids))
+            assert cummac.sum() == interval['cumMAC'], 'Error: cumMAC does not match! expeced: {}, got: {}'.format(interval['cumMAC'], cummac.sum())
 
             if np.any(keep):
 
-                # if keep.sum() == 1:
-                #     # only single SNP is not LOF
-                #     GL = G[:, keep] # actually just the linear kernel
-                #     GWL = G[:, keep].dot(np.diag(weights[keep], k=0)) # actually just the linear weighted kernel
-                # else:
-                #     L, flag2 = get_cholesky(S[np.ix_(keep, keep)])
-                #     GL = G[:, keep].dot(L)
-                #     GWL = G[:, keep].dot(np.diag(weights[keep], k=0)).dot(L)
+                if keep.sum() == 1:
+                    # only single SNP is not LOF
+                    GWL = G[:, keep].dot(np.diag(weights[keep], k=0)) # actually just the linear weighted kernel
+                else:
+                    L, flag2 = get_cholesky(S[np.ix_(keep, keep)])
+                    GWL = G[:, keep].dot(np.diag(weights[keep], k=0)).dot(L)
 
-                # call_score(G1, 'lincholesky_notLOF')
-                # call_score(GWL, 'linwcholesky_notLOF')
-                #
-                # call_lrt(GL, 'lincholesky_notLOF')
-                # call_lrt(GWL, 'linwcholesky_notLOF')
+                call_test(GWL, 'linwcholesky_notLOF')
 
-                G1 = G[:,keep].dot(np.diag(weights[keep], k=0))
-                call_score(G1, 'linw_notLOF', vids=vids[keep])
-                call_lrt(G1, 'linw_notLOF')
-
-            return pval_dict, called
+            # conditional analysis: keep names of SNPs that we condition on 
+            pval_dict['cond_snps'] = ','.join(cond_snps_vid)
+                
+            return pval_dict
 
 
         logging.info('loaders for chromosome {}, strand "{}" initialized in {:.1f} seconds.'.format(chromosome, strand, timer.check()))
         # run tests for all genes on the chromosome / strand
         for _, region in regions.iterrows():
 
+            if snakemake.params.debug:
+                if i_gene > 5:
+                    continue
+            
             try:
-                gene_stats, called = test_gene(region, i_gene)
+                results.append(test_gene(region, i_gene))
             except GotNone:
                 continue
-
-            # build the single-variant datafame
-            single_var_columns = ['gene', 'vid', 'weights', 'MAC', 'nCarrier', 'not_LOF' ] + sorted(snakemake.params.rbp_of_interest)
-            sv_df = pd.DataFrame.from_dict({k: gene_stats[k] for k in single_var_columns})
-
-            sv_df['pv_score'] = gene_stats['linw']['pv_score'] # single-variant p-values estimated independently
-            sv_df['coef_random'] = gene_stats['linw']['coef_random'] # single-variant coefficients estimated jointly after weighting
-            sv_df['beta'] = gene_stats['linw']['beta'] # single-variant coeffcients estimated independently *without* weighting
-            sv_df['betaSd'] = gene_stats['linw']['betaSd'] # standard errors for the single-variant coefficients estimated independently *without* weighting
-            sv_df['pheno'] = snakemake.params.phenotype
-
-            out_dir = os.path.join(snakemake.params.out_dir_stats, region['name'])
-            os.makedirs(out_dir, exist_ok=True)
-
-            sv_df.to_csv(out_dir + '/variants.tsv.gz', sep='\t', index=False)
-
-            for k in called:
-
-                if k == 'variant_pvals':
-                    continue
-
-                results_dict = gene_stats[k]
-
-                df_cols = ['pv_score', 'coef_random', 'beta', 'betaSd', 'vid']  # parts of the dict that have lenght > 1
-
-                df = pd.DataFrame.from_dict(data={k: results_dict[k] for k in df_cols if k in results_dict})
-                df['gene'] = gene_stats['gene']
-                df['pheno'] = snakemake.params.phenotype
-                df.to_csv(out_dir + '/{}.tsv.gz'.format(k), sep='\t', index=False)
-
-                #  other cols ['nLL', 'sigma2', 'lrtstat', 'h2', 'log_delta']
-                other_cols = {k: v for k, v in results_dict.items() if k not in df_cols}
-                other_cols['gene'] = gene_stats['gene']
-                other_cols['pheno'] = snakemake.params.phenotype
-
-                pickle.dump(other_cols, open(out_dir + '/{}_stats.pkl'.format(k), 'wb'))
 
             i_gene += 1
             logging.info('tested {} genes...'.format(i_gene))
 
+        i_chrom += 1
         timer.reset()
+
+# export the results in a single table
+results = pd.DataFrame(results)
+results['pheno'] = snakemake.params.phenotype
+results.to_csv(snakemake.output.results_tsv, sep='\t', index=False)

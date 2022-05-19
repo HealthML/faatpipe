@@ -8,6 +8,7 @@ logging.basicConfig(filename=snakemake.log[0], level=logging.INFO)
 import pandas as pd
 import numpy as np
 import h5py
+import gzip
 
 # seak imports
 from seak.data_loaders import intersect_ids, Hdf5Loader, VariantLoaderSnpReader, CovariatesLoaderCSV
@@ -51,6 +52,25 @@ def maf_filter(mac_report):
         vids = mac_report.SNP[(mac_report.MAF < snakemake.params.max_maf) & (mac_report.Minor > 0)]
 
     return mac_report.set_index('SNP').loc[vids]
+
+def sid_filter(vids):
+    
+    if 'sid_include' in snakemake.config:
+        print('limiting to variants present in {}'.format(snakemake.config['sid_include']))
+        
+        infilepath = snakemake.config['sid_include']
+        
+        if infilepath.endswith('gz'):
+            with gzip.open(infilepath,'rt') as infile:
+                sid = np.array([l.rstrip() for l in infile])
+        else:
+            with open(infilepath, 'r') as infile:
+                sid = np.array([l.rstrip() for l in infile])
+    else:
+        return vids
+                
+    return intersect_ids(vids, sid)
+
 
 def vep_filter(h5_rbp, bed_rbp):
 
@@ -131,6 +151,7 @@ for i, (chromosome, bed, mac_report, vep_tsv) in enumerate(geno_vep):
     # get variants that pass MAF threshold:
     mac_report = maf_filter(mac_report)
     filter_vids = mac_report.index.values
+    filter_vids = sid_filter(filter_vids)
 
     # function to identify protein LOF variants
     is_plof = get_plof_id_func(vep_tsv)
@@ -301,7 +322,7 @@ for k in kern:
     pd.DataFrame.from_dict(simulations_[k], orient='index').to_pickle(snakemake.params.out_dir_stats + '{}.pkl.gz'.format(k))
 
 # calculate chi2 mixture parameters for each kernel
-params = {k : fit_chi2mixture(np.concatenate(list(simulations_[k].values())), 0.1) for k in simulations_.keys()}
+params = {k : fit_chi2mixture(np.concatenate(list(simulations_[k].values())), qmax=0.1) for k in simulations_.keys()}
 
 pvals = np.empty((stats.shape[0], len(kern)))
 pvals[:, :] = np.nan

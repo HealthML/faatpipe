@@ -5,8 +5,10 @@ channels:
 dependencies:
   - pip=20.2.3
   - python=3.8
+  - pandas
   - numpy
   - scipy
+  - jupyterlab
   - cython
   - mkl>=2019.4
   - libblas=*=*mkl

@@ -7,7 +7,10 @@ set -e
 if [ ! -d $snakemake_env ]; then
     >&2 echo "Installing snakemake conda environment in $snakemake_env ..." 
     mkdir -p install
-    conda env create -f env/snakemake.yml --prefix $snakemake_env
+    eval "$(conda shell.bash hook)"
+    conda env create -f env/snakemake.yml --prefix $snakemake_env && \
+    conda activate $snakemake_env && \
+    mamba install -c bioconda -c conda-forge snakemake
 fi
 
 if [ ! -d ./bin ]; then

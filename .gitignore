@@ -1,0 +1,11 @@
+data/regions/xgen_plus_spikein.b38.*
+data/regions/HG001_GRCh38_GIAB_highconf_CG-IllFB-IllGATKHC-Ion-10X-SOLID_CHROM1-X_v.3.3.2_highconf_nosomaticdel_noCENorHET7.rm_chr.*
+.ipynb_checkpoints
+.snakemake
+__pycache__
+data/*
+bin
+seak
+work
+data/regions/HG001_GRCh38_GIAB_highconf_CG-IllFB-IllGATKHC-Ion-10X-SOLID_CHROM1-X_v.3.3.2_highconf_nosomaticdel_noCENorHET7.rm_chr.bed.gz
+data/regions/xgen_plus_spikein.b38.bed.gz
