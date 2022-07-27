@@ -1,7 +1,7 @@
 # Functional Annotation and Association Testing Pipeline
 Pipeline to run variant effect prediction and rare-variant association tests for continuous phenotypes on UK Biobank exome sequencing (or other) data. It uses [Snakemake](https://snakemake.github.io/) to parallelize large parts of the analysis across chromosomes and phenotypes. Conda on a Linux system is the main requirement for getting started.
 
-This pipeline was originally run on different virtual machines in local mode. For full cluster support, users can easily modify `./run.sh` to use SLURM, SGE or other schedulers with Snakemake.
+This pipeline was originally run on different virtual machines in local mode. A snakemake profile for slurm is provided at `./slurm`. 
 
 ## Getting Started
 ### Installing basic dependencies
