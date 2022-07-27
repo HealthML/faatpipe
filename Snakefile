@@ -91,7 +91,7 @@ rule link_genotypes:
     run:
         if not os.path.isdir('data/genotypes'):
             os.makedirs('data/genotypes')
-        shell('ln -s -r {input.bim} {output.bim} && ln -s -r {input.fam} {output.fam} &&  ln -s -r {input.bed} {output.bed}')
+        shell('ln -s -r "{input.bim}" {output.bim} && ln -s -r "{input.fam}" {output.fam} &&  ln -s -r "{input.bed}" {output.bed}')
 
 rule link_reference:
     input:
@@ -101,7 +101,7 @@ rule link_reference:
     run:
         if not os.path.isdir('data/reference'):
             os.makedirs('data/reference')
-        shell('ln -s "$(readlink -f {input})" {output}')
+        shell('ln -s -r "{input}" {output}')
 
 rule link_gene_annotation:
     input:
@@ -111,7 +111,7 @@ rule link_gene_annotation:
     run:
         if not os.path.isdir('data/reference'):
             os.makedirs('data/reference')
-        shell('ln -s "$(readlink -f {input})" {output}')
+        shell('ln -s -r "{input}" {output}')
 
 rule link_all:
     # checks if all the input files are present and links some of them to the working directory
