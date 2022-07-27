@@ -144,9 +144,9 @@ rule install_seak:
         'env/seak.yml'
     shell:
         'if [ ! -d seak ]; then '
-        'git clone https://github.com/HealthML/seak.git && cd seak && git checkout tags/v0.4.2 ; '
+        'git clone https://github.com/HealthML/seak.git && cd seak && git checkout tags/v0.4.3 ; '
         'else '
-        'cd seak && git checkout tags/v0.4.2 ; '
+        'cd seak && git checkout tags/v0.4.3 ; '
         'fi ; '
         'pip install -e . '
         
