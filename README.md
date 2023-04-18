@@ -1,3 +1,4 @@
+
 # Functional Annotation and Association Testing Pipeline
 Pipeline to run variant effect prediction and rare-variant association tests for continuous phenotypes on UK Biobank exome sequencing (or other) data. It uses [Snakemake](https://snakemake.github.io/) to parallelize large parts of the analysis across chromosomes and phenotypes. Conda on a Linux system is the main requirement for getting started.
 
@@ -47,3 +48,10 @@ The rules needed to run variant effect prediction are `evep_missense_proc_all` f
 To run a basic analysis using gene-based variant collapsing score tests for missense and pLOF variants, use the rule `assoc_baseline_scoretest_all`. This will also export (tiny!) HDF5-files containing the pre-processed burdens for all individuals which have complete covariates to `work/gene_scores/indicator01/missense/all/` and `work/gene_scores/indicator01/pLOF/all/`.
 
 To perform kernel-based tets with the sLRT, the follwing rules can be used: To run gene-based variant collapsing and kernel-based tests for for missense variants use rule `assoc_missense_localcollapsing_all`. To run gene-based variant collapsing and kernel-based tests for for splice-variants use rule `assoc_spliceai_linw_all`. To run kernel-based tests incorporating variant effect predictions for RBP-binding use rule `assoc_deepripe_multiple_cholesky_all`.
+
+# Citation
+This code has been used in
+[**Identifying interpretable gene-biomarker associations with functionally informed kernel-based tests in 190,000 exomes**](https://www.nature.com/articles/s41467-022-32864-2) by Remo Monti, Pia Rautenstrauch, Mahsa Ghanbari, Alva Rani James, Matthias Kirchler, Uwe Ohler, Stefan Konigorski & Christoph Lippert, *Nature Communications*, 2022.
+
+Summary statistics for that study are available on the GWAS catalog, [accession number 36088354](http://www.ebi.ac.uk/gwas/publications/36088354). 
+
